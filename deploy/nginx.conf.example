@@ -1,0 +1,30 @@
+# 宝塔站点 server 块参考（放置于站点配置或 /etc/nginx/conf.d）
+# 前端静态产物: /www/wwwroot/content-studio/frontend/dist
+server {
+    listen 80;
+    server_name YOUR_SERVER_IP;
+
+    root /www/wwwroot/content-studio/frontend/dist;
+    index index.html;
+
+    # 前端 SPA
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 后端 API
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # WebSocket
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
