@@ -171,3 +171,9 @@ textarea.small { font-size: 13px; }
 .palette-item.pi-transformer:hover { border-color: #0ea5e9; box-shadow: 0 2px 8px rgba(14, 165, 233, .2); }
 
 .csnode.k-tool { border-color: #7c3aed; }
+
+/* 面板头部：标题 + 删除节点按钮 */
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.panel-head .ph-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-head .del-btn { flex: 0 0 auto; font-size: 12px; padding: 3px 9px; border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
+.panel-head .del-btn:hover { background: #dc2626; color: #fff; border-color: #dc2626; }

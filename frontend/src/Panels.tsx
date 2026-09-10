@@ -559,10 +559,25 @@ export default function ConfigPanel() {
   const nodes = useStore((s) => s.nodes)
   const node = nodes.find((n) => n.id === selected) || null
   const meta = node ? TYPE_META[node.data.kind as keyof typeof TYPE_META] : null
+
+  async function removeNode() {
+    if (!node) return
+    const label = node.data.label || '该节点'
+    if (!confirm(`确定删除「${label}」？\n该节点及其连线、相关稿件记录都会被删除，且不可恢复。`)) return
+    try {
+      await api.deleteNode(node.id)
+      useStore.getState().removeNodeLocal(node.id)
+      useStore.getState().toastMsg(`已删除节点：${label}`)
+    } catch (e) { useStore.getState().toastMsg(errText(e)) }
+  }
+
   return (
     <aside className="panel">
       <div className="panel-head">
-        {node ? <>{meta?.icon} {node.data.label}</> : '节点配置'}
+        <span className="ph-title">{node ? <>{meta?.icon} {node.data.label}</> : '节点配置'}</span>
+        {node ? (
+          <button className="del-btn" onClick={removeNode} title="删除该节点（也可选中后按 Delete 键）">🗑 删除节点</button>
+        ) : null}
       </div>
       {!node ? (
         <div className="panel-body"><div className="empty">点击画布中的节点查看/配置。\n从左侧拖入节点，连线形成工作流。</div></div>

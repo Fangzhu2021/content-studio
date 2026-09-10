@@ -88,12 +88,21 @@ export const useStore = create<StoreState>((set, get) => {
       let user: User | null = null
       try { user = JSON.parse(localStorage.getItem('cs_user') || 'null') } catch { /* ignore */ }
       set({ token, user })
-      try { await get().loadProjects() } catch { /* 401 交给拦截器 */ }
+      try {
+        await get().loadProjects()
+        // 自动恢复上次打开的项目（刷新页面后不丢上下文）
+        const last = localStorage.getItem('cs_last_project')
+        if (last && get().projects.some((p) => p.id === last)) {
+          await get().openProject(last)
+        }
+      } catch { /* 401 交给拦截器 */ }
     },
     async login(username, password) { const r = await api.login(username, password); setAuth(r.token, r.user); set({ token: r.token, user: r.user }); await get().loadProjects() },
     async register(username, password) { const r = await api.register(username, password); setAuth(r.token, r.user); set({ token: r.token, user: r.user }); await get().loadProjects() },
     logout() {
-      clearAuth(); get().ws?.close()
+      clearAuth()
+      localStorage.removeItem('cs_last_project')
+      get().ws?.close()
       set({ token: null, user: null, projects: [], currentId: null, nodes: [], edges: [], selected: null, ws: null })
     },
     async loadProjects() { set({ projects: await api.listProjects() }) },
@@ -106,10 +115,15 @@ export const useStore = create<StoreState>((set, get) => {
     async openProject(id) {
       get().ws?.close()
       const d = await api.getProject(id)
+      localStorage.setItem('cs_last_project', id)
       set({ currentId: id, nodes: d.nodes.map(toFlowNode), edges: d.edges.map(toFlowEdge), selected: null, running: [] })
       set({ ws: await openWs(id) })
     },
-    closeProject() { get().ws?.close(); set({ currentId: null, nodes: [], edges: [], selected: null, ws: null }) },
+    closeProject() {
+      get().ws?.close()
+      localStorage.removeItem('cs_last_project')
+      set({ currentId: null, nodes: [], edges: [], selected: null, ws: null })
+    },
     async refreshCanvas() {
       const cid = get().currentId
       if (!cid) return

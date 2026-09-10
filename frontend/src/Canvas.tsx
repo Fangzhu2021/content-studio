@@ -48,6 +48,16 @@ function CanvasInner() {
   async function onNodesDelete(del: any[]) {
     for (const n of del) { try { await api.deleteNode(n.id) } catch (e) { toastMsg(errText(e)) } removeNodeLocal(n.id) }
   }
+  async function onEdgeClick(ev: React.MouseEvent, edge: any) {
+    ev.stopPropagation()
+    if (!confirm('删除这条连线？')) return
+    try {
+      await api.deleteEdge(edge.id)
+      removeEdgeLocal(edge.id)
+      toastMsg('连线已删除')
+    } catch (e) { toastMsg(errText(e)) }
+  }
+
   async function onEdgesDelete(del: any[]) {
     for (const e of del) { try { await api.deleteEdge(e.id) } catch (err) { toastMsg(errText(err)) } removeEdgeLocal(e.id) }
   }
@@ -79,6 +89,7 @@ function CanvasInner() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={(_, node) => select(node.id)}
+        onEdgeClick={onEdgeClick}
         onPaneClick={() => select(null)}
         onDrop={onDrop}
         onDragOver={onDragOver}
