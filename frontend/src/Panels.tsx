@@ -399,15 +399,18 @@ function ExportPanel({ node }: { node: FlowNode }) {
     setPick('')
     setPreview(null)
     setFinalRev(null)
-    void loadSources().then((list) => {
-      if (list.length) { setPick(list[0].id); setPreview(list[0]) }
-    })
-    // 打开面板时自动载入本节点上次生成的成稿（含排版好的 HTML）
+    // 先取本节点已生成的成稿（排版 HTML），再列上游来源；成稿优先作为预览
     void (async () => {
-      try {
-        const mine = await api.nodeRevision(node.id)
-        if (mine && (mine.content || '').trim()) { setFinalRev(mine); setPreview(mine) }
-      } catch { /* 忽略 */ }
+      let mine: Revision | null = null
+      try { mine = await api.nodeRevision(node.id) } catch { mine = null }
+      const list = await loadSources()
+      if (mine && (mine.content || '').trim()) {
+        setFinalRev(mine)
+        setPreview(mine)
+      } else if (list.length) {
+        setPick(list[0].id)
+        setPreview(list[0])
+      }
     })()
   }, [node.id])
 
