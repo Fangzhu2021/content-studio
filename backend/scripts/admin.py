@@ -5,6 +5,7 @@
   .venv/bin/python scripts/admin.py demote <username>
   .venv/bin/python scripts/admin.py invite [--role editor] [--days 7] [--note "给xx"]
   .venv/bin/python scripts/admin.py reset-password <username> <new_password>
+  .venv/bin/python scripts/admin.py sync-prompt <key> [--apply]
   .venv/bin/python scripts/admin.py users
   .venv/bin/python scripts/admin.py registration on|off
 """
@@ -20,7 +21,7 @@ from sqlalchemy import select  # noqa: E402
 
 from app.audit import get_setting, set_setting  # noqa: E402
 from app.db import async_session, engine  # noqa: E402
-from app.models import Invite, User  # noqa: E402
+from app.models import Invite, NodeTemplate, PromptTemplate, User  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
 
@@ -70,6 +71,35 @@ async def main() -> None:
             user.token_version = (user.token_version or 1) + 1
             await db.commit()
             print(f"{username} 密码已重置，旧会话已失效")
+
+        elif cmd == "sync-prompt":
+            from app.ai import PROMPTS
+            key = sys.argv[2] if len(sys.argv) > 2 else ""
+            builtin = PROMPTS.get(key)
+            if not builtin:
+                print(f"代码中没有该内置提示词: {key}")
+                return
+            apply = "--apply" in sys.argv
+            rows = (await db.execute(select(PromptTemplate).where(PromptTemplate.key == key,
+                                                                 PromptTemplate.scope == "global"))).scalars().all()
+            for r in rows:
+                print(f"[prompt_templates] {key}: 库中 {len(r.content)} 字 -> 内置 {len(builtin)} 字"
+                      + ("（已更新）" if apply else "（预览，加 --apply 生效）"))
+                if apply:
+                    r.content = builtin
+            # 同步节点模板默认提示词（导出节点）
+            if key.startswith("export_"):
+                subtype = key[len("export_"):]
+                nodes = (await db.execute(select(NodeTemplate).where(NodeTemplate.kind == "exporter",
+                                                                     NodeTemplate.subtype == subtype))).scalars().all()
+                for n in nodes:
+                    print(f"[node_templates] exporter:{subtype}: {len(n.prompt or '')} 字 -> {len(builtin)} 字"
+                          + ("（已更新）" if apply else "（预览）"))
+                    if apply:
+                        n.prompt = builtin
+            if apply:
+                await db.commit()
+                print("已写入数据库，重启后端后生效（提示词为读取时取值，通常无需重启）")
 
         elif cmd == "users":
             rows = await db.execute(select(User).order_by(User.created_at))
