@@ -4,6 +4,7 @@
   .venv/bin/python scripts/admin.py promote <username>
   .venv/bin/python scripts/admin.py demote <username>
   .venv/bin/python scripts/admin.py invite [--role editor] [--days 7] [--note "给xx"]
+  .venv/bin/python scripts/admin.py reset-password <username> <new_password>
   .venv/bin/python scripts/admin.py users
   .venv/bin/python scripts/admin.py registration on|off
 """
@@ -20,6 +21,7 @@ from sqlalchemy import select  # noqa: E402
 from app.audit import get_setting, set_setting  # noqa: E402
 from app.db import async_session, engine  # noqa: E402
 from app.models import Invite, User  # noqa: E402
+from app.security import hash_password  # noqa: E402
 
 
 def arg(flag: str, default: str = "") -> str:
@@ -53,6 +55,21 @@ async def main() -> None:
                           expires_at=datetime.now(timezone.utc) + timedelta(days=days)))
             await db.commit()
             print(f"邀请码: {code}  角色: {role}  有效期: {days} 天  备注: {note or '-'}")
+
+        elif cmd == "reset-password":
+            username = sys.argv[2] if len(sys.argv) > 2 else ""
+            newpw = sys.argv[3] if len(sys.argv) > 3 else ""
+            if len(newpw) < 8 or not any(c.isalpha() for c in newpw) or not any(c.isdigit() for c in newpw):
+                print("密码至少 8 位，且需同时包含字母和数字")
+                return
+            user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
+            if not user:
+                print(f"用户不存在: {username}")
+                return
+            user.hashed_password = hash_password(newpw)
+            user.token_version = (user.token_version or 1) + 1
+            await db.commit()
+            print(f"{username} 密码已重置，旧会话已失效")
 
         elif cmd == "users":
             rows = await db.execute(select(User).order_by(User.created_at))

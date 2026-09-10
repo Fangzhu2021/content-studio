@@ -98,6 +98,43 @@ function CreateModal({ onDone }: { onDone: () => void }) {
   )
 }
 
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const [oldPw, setOldPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [newPw2, setNewPw2] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit() {
+    setErr('')
+    if (newPw !== newPw2) { setErr('两次输入的新密码不一致'); return }
+    if (newPw.length < 8 || !/[A-Za-z]/.test(newPw) || !/[0-9]/.test(newPw)) {
+      setErr('新密码至少 8 位，且需同时包含字母和数字'); return
+    }
+    setBusy(true)
+    try {
+      await useStore.getState().changePassword(oldPw, newPw)
+      useStore.getState().toastMsg('密码已修改，其他设备上的登录已失效')
+      onClose()
+    } catch (e) { setErr(errText(e)) }
+    setBusy(false)
+  }
+  return (
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>修改密码</h3>
+        <input type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} placeholder="当前密码" autoFocus />
+        <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="新密码（≥8 位，含字母和数字）" />
+        <input type="password" value={newPw2} onChange={(e) => setNewPw2(e.target.value)} placeholder="再次输入新密码" />
+        {err ? <div className="login-err">{err}</div> : null}
+        <div className="btn-row right">
+          <button onClick={onClose}>取消</button>
+          <button className="primary" disabled={busy || !oldPw || !newPw} onClick={submit}>{busy ? '提交中…' : '确认修改'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Palette() {
   const select = useStore((s) => s.select)
   const currentId = useStore((s) => s.currentId)
@@ -147,6 +184,7 @@ function Workspace() {
   const currentId = useStore((s) => s.currentId)
   const toast = useStore((s) => s.toast)
   const [showCreate, setShowCreate] = useState(false)
+  const [showPw, setShowPw] = useState(false)
   const [panelWidth, setPanelWidth] = useState(() => {
     const saved = Number(localStorage.getItem('cs_panel_width') || 0)
     return saved >= PANEL_MIN && saved <= PANEL_MAX ? saved : PANEL_DEFAULT
@@ -204,6 +242,7 @@ function Workspace() {
             👤 {user.username}
             {user.role === 'admin' ? <span className="role-badge">管理员</span> : null}
             {user.role === 'admin' ? <a className="admin-entry" href="/admin">管理后台</a> : null}
+            <button onClick={() => setShowPw(true)}>修改密码</button>
             <button onClick={() => useStore.getState().logout()}>退出</button>
           </div>
         ) : null}
@@ -225,6 +264,7 @@ function Workspace() {
         </div>
       </div>
       {showCreate ? <CreateModal onDone={() => setShowCreate(false)} /> : null}
+      {showPw ? <ChangePasswordModal onClose={() => setShowPw(false)} /> : null}
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
   )

@@ -44,6 +44,10 @@ export const api = {
     const { data } = await http.post('/auth/register', { username, password, invite_code: inviteCode })
     return data as { token: string; user: { id: string; username: string; role?: string } }
   },
+  async changePassword(oldPassword: string, newPassword: string) {
+    const { data } = await http.post('/auth/change-password', { old_password: oldPassword, new_password: newPassword })
+    return data as { token: string; user: { id: string; username: string; role?: string } }
+  },
   async registerMode() {
     const { data } = await http.get('/auth/register-mode')
     return data as { registration_open: boolean; invite_required: boolean; password_rule: string }
