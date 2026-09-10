@@ -8,7 +8,7 @@ export interface FlowNode {
   id: string
   type: 'cs'
   position: { x: number; y: number }
-  data: { kind: string; subtype: string; label: string; status: string; error?: string }
+  data: { kind: string; subtype: string; label: string; status: string; error?: string; config?: Record<string, unknown> }
   selected?: boolean
 }
 export interface FlowEdge { id: string; source: string; target: string; animated?: boolean }
@@ -16,7 +16,7 @@ export interface FlowEdge { id: string; source: string; target: string; animated
 export function toFlowNode(n: CanvasNode): FlowNode {
   const fmt = FORMATS[n.subtype] || ''
   const label = n.label || (fmt ? `${TYPE_META[n.type as keyof typeof TYPE_META].label} · ${fmt}` : TYPE_META[n.type as keyof typeof TYPE_META].label)
-  return { id: n.id, type: 'cs', position: n.position, data: { kind: n.type, subtype: n.subtype, label, status: n.status || 'idle', error: n.error || '' } }
+  return { id: n.id, type: 'cs', position: n.position, data: { kind: n.type, subtype: n.subtype, label, status: n.status || 'idle', error: n.error || '', config: n.config || {} } }
 }
 export function toFlowEdge(e: CanvasEdge): FlowEdge { return { id: e.id, source: e.source, target: e.target } }
 

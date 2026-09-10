@@ -83,6 +83,10 @@ export const api = {
     const { data } = await http.post(`/nodes/${nodeId}/content`, { title, content })
     return data as import('./types').Revision
   },
+  async getPrompts() {
+    const { data } = await http.get('/prompts')
+    return data as { prompts: Record<string, string>; labels: Record<string, string>; models: string[] }
+  },
   async getRevision(rid: string) {
     const { data } = await http.get(`/revisions/${rid}`)
     return data as import('./types').Revision

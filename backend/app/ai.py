@@ -27,23 +27,36 @@ FORMAT_LABELS = {
 }
 
 
-async def rewrite(format_type: str, content: str, title: str = "") -> tuple[str, str]:
-    """返回 (改写文本, 模型名)。未配置 DEEPSEEK_API_KEY 时走 mock，保证流程可演示。"""
+DEFAULT_MODEL = "deepseek-chat"
+AVAILABLE_MODELS = ["deepseek-chat", "deepseek-reasoner"]
+
+
+async def rewrite(format_type: str, content: str, title: str = "",
+                  custom_prompt: str | None = None, model: str | None = None) -> tuple[str, str]:
+    """返回 (改写文本, 模型名)。
+
+    - custom_prompt：节点级自定义提示词（node.config.prompt），为空则用该格式的默认模板
+    - model：节点级模型档位（node.config.model），默认 deepseek-chat
+    - 未配置 DEEPSEEK_API_KEY 时走 mock，保证流程可演示
+    """
     s = get_settings()
     if not s.deepseek_api_key:
         return _mock_rewrite(format_type, content, title), "mock(未配置Key)"
-    prompt = PROMPTS.get(format_type)
+    prompt = (custom_prompt or "").strip() or PROMPTS.get(format_type)
     if not prompt:
         raise ValueError(f"不支持的格式: {format_type}")
+    use_model = (model or "").strip() or DEFAULT_MODEL
+    if use_model not in AVAILABLE_MODELS:
+        use_model = DEFAULT_MODEL
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": f"标题/主题：{title or '（无）'}\n\n素材内容：\n{content}"},
     ]
     payload = {
-        "model": "deepseek-chat",
+        "model": use_model,
         "messages": messages,
         "temperature": 0.7,
-        "max_tokens": 4000,
+        "max_tokens": 8000,
     }
     headers = {"Authorization": f"Bearer {s.deepseek_api_key}"}
     async with httpx.AsyncClient(timeout=120) as client:
@@ -51,7 +64,7 @@ async def rewrite(format_type: str, content: str, title: str = "") -> tuple[str,
         resp.raise_for_status()
         data = resp.json()
         text = data["choices"][0]["message"]["content"].strip()
-    return text, "deepseek-chat"
+    return text, use_model
 
 
 def _mock_rewrite(format_type: str, content: str, title: str) -> str:

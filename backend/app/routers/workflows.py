@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ai import rewrite
+from ..ai import AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, rewrite
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
@@ -116,6 +116,12 @@ def _pick_revision(candidates: list[Revision], prefer_id: str | None) -> Revisio
 
 
 # ---------- 画布 ----------
+
+@router.get("/prompts")
+async def list_prompts(user: User = Depends(get_current_user)):
+    """返回各格式的默认提示词模板、格式名称与可选模型档位（供节点面板编辑/恢复默认）。"""
+    return {"prompts": PROMPTS, "labels": FORMAT_LABELS, "models": AVAILABLE_MODELS}
+
 
 @router.get("/projects/{pid}/canvas")
 async def get_canvas(pid: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -274,7 +280,14 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn) -> dict
             src = _pick_revision(candidates, body.revision_id)
             if not src or not (src.content or "").strip():
                 raise HTTPException(400, "缺少上游稿件内容，请先填写草稿并执行上游节点")
-            text, model = await rewrite(node.subtype, src.content, src.title or "")
+            cfg = node.config or {}
+            text, model = await rewrite(
+                node.subtype,
+                src.content,
+                src.title or "",
+                custom_prompt=cfg.get("prompt"),
+                model=cfg.get("model"),
+            )
             rev = Revision(project_id=node.project_id, node_id=node.id, parent_revision_id=src.id,
                            title=src.title or "", content=text, format_type=node.subtype,
                            status="rewritten", model=model)

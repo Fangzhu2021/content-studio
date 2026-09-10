@@ -129,3 +129,9 @@ textarea.small { font-size: 13px; }
 .preview-box.is-final { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, .08); }
 .final-box { border: 1px solid #16a34a; background: #f0fdf4; border-radius: 10px; padding: 10px; margin: 12px 0; }
 .final-head { color: #15803d; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+
+/* ---------- 提示词设置 ---------- */
+.prompt-box { border: 1px dashed #cbd5e1; border-radius: 10px; padding: 10px; margin: 12px 0; background: #fbfcfe; }
+.prompt-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; }
+.prompt-head .chip.on { background: #eef2ff; border-color: #6366f1; color: #4338ca; }
+.prompt-box select { margin: 6px 0; }

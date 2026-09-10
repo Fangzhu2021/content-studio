@@ -4,6 +4,12 @@ import { errText, useStore, type FlowNode } from './store'
 import { FORMATS, STATUS_TEXT, TYPE_META } from './types'
 import type { Revision } from './types'
 
+let promptDefaults: { prompts: Record<string, string>; labels: Record<string, string>; models: string[] } | null = null
+async function loadPromptDefaults() {
+  if (!promptDefaults) promptDefaults = await api.getPrompts()
+  return promptDefaults
+}
+
 function copyText(text: string) {
   const done = () => useStore.getState().toastMsg('已复制到剪贴板')
   if (navigator.clipboard?.writeText) {
@@ -47,7 +53,7 @@ function OutBox({ rev, hint }: { rev: Revision | null; hint?: string }) {
       {chips(rev)}
       <div className="rev-title">{rev.title || '（无标题）'}</div>
       {rev.review_comment ? <div className="comment">审定意见：{rev.review_comment}</div> : null}
-      <textarea className="rev-content" readOnly value={rev.content} spellCheck={false} />
+      <textarea className="rev-content out-content" readOnly value={rev.content} spellCheck={false} />
       {rev.content ? <button onClick={() => copyText(rev.content)}>📋 复制全文</button> : null}
     </div>
   )
@@ -86,7 +92,50 @@ function DraftPanel({ node }: { node: FlowNode }) {
 function AiPanel({ node }: { node: FlowNode }) {
   const { rev, reload } = useRevision(node.id)
   const [busy, setBusy] = useState(false)
+  const [showPrompt, setShowPrompt] = useState(false)
+  const [draftPrompt, setDraftPrompt] = useState('')
+  const [model, setModel] = useState('deepseek-chat')
+  const [defaultPrompt, setDefaultPrompt] = useState('')
+  const [models, setModels] = useState<string[]>(['deepseek-chat', 'deepseek-reasoner'])
+  const [saved, setSaved] = useState(false)
+
+  const cfg = (node.data.config || {}) as Record<string, any>
+  const custom = !!(cfg.prompt && String(cfg.prompt).trim())
   const isTransform = node.data.kind === 'transformer'
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const d = await loadPromptDefaults()
+        setDefaultPrompt(d.prompts[node.data.subtype] || '')
+        if (d.models?.length) setModels(d.models)
+      } catch { /* 忽略 */ }
+    })()
+  }, [node.data.subtype])
+
+  useEffect(() => {
+    setDraftPrompt(cfg.prompt ? String(cfg.prompt) : '')
+    setModel(cfg.model ? String(cfg.model) : 'deepseek-chat')
+    // 注意：不可在此重置 saved —— 保存后 syncNode 会触发本 effect，导致「已保存」提示被立即清掉
+  }, [node.id, cfg.prompt, cfg.model])
+
+  useEffect(() => { setSaved(false) }, [node.id])
+
+  async function savePrompt(nextPrompt: string, nextModel: string) {
+    const nextCfg: Record<string, unknown> = { ...cfg }
+    if (nextPrompt.trim()) nextCfg.prompt = nextPrompt
+    else delete nextCfg.prompt
+    if (nextModel && nextModel !== 'deepseek-chat') nextCfg.model = nextModel
+    else delete nextCfg.model
+    try {
+      const updated = await api.updateNode(node.id, { config: nextCfg })
+      useStore.getState().syncNode(node.id, { config: (updated as any).config || nextCfg })
+      useStore.getState().toastMsg(nextPrompt.trim() ? '提示词已保存到该节点' : '已恢复默认提示词')
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) { useStore.getState().toastMsg(errText(e)) }
+  }
+
   async function run() {
     setBusy(true)
     try {
@@ -100,7 +149,7 @@ function AiPanel({ node }: { node: FlowNode }) {
     }
     setBusy(false)
   }
-  const meta = TYPE_META[node.data.kind as keyof typeof TYPE_META]
+
   return (
     <div className="panel-body">
       <p className="tip">
@@ -108,10 +157,44 @@ function AiPanel({ node }: { node: FlowNode }) {
           ? `把上游已审定稿件转换为「${FORMATS[node.data.subtype]}」风格。`
           : `把草稿改写为「${FORMATS[node.data.subtype]}」。上游：草稿输入或上一层输出。`}
       </p>
-      <button className="primary" onClick={run} disabled={busy}>{busy ? '⏳ 执行中…' : '⚡ 执行改写'}</button>
+      <button className="primary wide" onClick={run} disabled={busy}>{busy ? '⏳ 执行中…' : '⚡ 执行改写'}</button>
+
+      <div className="prompt-box">
+        <div className="prompt-head">
+          <span>🧠 提示词设置 {custom ? <span className="chip on">已自定义</span> : <span className="chip">默认模板</span>}</span>
+          <button onClick={() => setShowPrompt(!showPrompt)}>{showPrompt ? '收起' : '修改'}</button>
+        </div>
+        {showPrompt ? (
+          <>
+            <label>模型档位</label>
+            <select value={model} onChange={(e) => setModel(e.target.value)}>
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m === 'deepseek-reasoner' ? 'deepseek-reasoner（深度思考，更慢更细）' : 'deepseek-chat（默认，推荐）'}
+                </option>
+              ))}
+            </select>
+            <label>该节点提示词（留空 = 使用默认模板）</label>
+            <textarea className="rev-content" rows={8} value={draftPrompt}
+              placeholder={defaultPrompt || '（默认模板加载中…）'}
+              onChange={(e) => setDraftPrompt(e.target.value)} />
+            <div className="btn-row">
+              <button className="primary" onClick={() => savePrompt(draftPrompt, model)}>💾 保存提示词</button>
+              <button onClick={() => { setDraftPrompt(''); setModel('deepseek-chat'); void savePrompt('', 'deepseek-chat') }}>↺ 恢复默认</button>
+              <button onClick={() => setDraftPrompt(defaultPrompt)}>⤵ 载入默认模板</button>
+            </div>
+            {saved ? <div className="ok">✔ 已保存，点击「执行改写」即按新提示词生成</div> : null}
+          </>
+        ) : null}
+      </div>
+
       <h4>输出预览</h4>
-      <OutBox rev={rev} hint="执行后在此预览改写结果；未配置 DeepSeek Key 时为模拟模式。" />
-      {rev?.content ? <button onClick={() => copyText(rev.content)}>📋 复制全文</button> : null}
+      <OutBox rev={rev} hint="执行后在此预览改写结果。" />
+      {rev?.content ? (
+        <div className="btn-row">
+          <button onClick={() => copyText(rev.content)}>📋 一键复制全文（{rev.content.length} 字）</button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -271,7 +354,7 @@ function ExportPanel({ node }: { node: FlowNode }) {
           </div>
           <div className="rev-title">{preview.title || '（无标题）'}</div>
           {preview.review_comment ? <div className="comment">审定意见：{preview.review_comment}</div> : null}
-          <textarea className="rev-content" readOnly value={preview.content || ''} spellCheck={false} />
+          <textarea className="rev-content preview-content" readOnly value={preview.content || ''} spellCheck={false} />
           {preview.content ? (
             <div className="btn-row">
               <button className="primary wide" onClick={() => copyText(preview.content || '')}>
