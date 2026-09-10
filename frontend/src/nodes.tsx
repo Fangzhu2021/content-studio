@@ -46,6 +46,13 @@ export interface PaletteGroup { group: string; color: string; hint?: string; ite
 export const PALETTE: PaletteGroup[] = [
   { group: '输入', color: '#64748b', items: [{ kind: 'draft_input', subtype: '', icon: '📝' }] },
   {
+    group: '工具', color: '#7c3aed', hint: '（从草稿取稿）',
+    items: [
+      { kind: 'tool', subtype: 'condense', icon: '✂️' },
+      { kind: 'tool', subtype: 'style_prompt', icon: '🎨' },
+    ],
+  },
+  {
     group: 'AI 改写', color: '#6366f1', hint: '（原稿 → TV/报刊稿）',
     items: [
       { kind: 'rewriter', subtype: 'tv_script', icon: '📺' },

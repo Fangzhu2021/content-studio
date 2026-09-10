@@ -94,7 +94,7 @@ function CanvasInner() {
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="#cbd5e1" />
         <Controls />
-        <MiniMap pannable zoomable nodeColor={(n: any) => ({ draft_input: '#64748b', rewriter: '#6366f1', reviewer: '#d97706', ai_reviewer: '#0891b2', transformer: '#0ea5e9', exporter: '#16a34a' })[n.data.kind] || '#94a3b8'} />
+        <MiniMap pannable zoomable nodeColor={(n: any) => ({ draft_input: '#64748b', rewriter: '#6366f1', reviewer: '#d97706', ai_reviewer: '#0891b2', transformer: '#0ea5e9', tool: '#7c3aed', exporter: '#16a34a' })[n.data.kind] || '#94a3b8'} />
       </ReactFlow>
       <div className="canvas-tools">
         <button onClick={() => { select(null); rf.fitView({ padding: 0.2 }) }}>⤢ 适应视图</button>

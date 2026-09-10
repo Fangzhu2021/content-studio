@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ai import AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, ai_review, rewrite
+from ..ai import AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, TOOL_KINDS, ai_review, rewrite, tool_run
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
@@ -104,6 +104,11 @@ async def upstream_revisions(db: AsyncSession, node: CanvasNode) -> list[Revisio
     return newest_per_node(await collect(list(upstream_ids)))
 
 
+def _is_style(rev: Revision) -> bool:
+    """风格提取节点的产物是「风格提示词」，不是稿件内容。"""
+    return (rev.format_type or "") == "style_prompt"
+
+
 def _pick_revision(candidates: list[Revision], prefer_id: str | None) -> Revision | None:
     if prefer_id:
         for r in candidates:
@@ -135,7 +140,7 @@ async def get_canvas(pid: str, user: User = Depends(get_current_user), db: Async
 async def create_node(pid: str, body: NodeCreate, user: User = Depends(get_current_user),
                       db: AsyncSession = Depends(get_db)):
     await _owned_project(db, pid, user)
-    if body.type not in ("draft_input", "rewriter", "reviewer", "ai_reviewer", "transformer", "exporter"):
+    if body.type not in ("draft_input", "rewriter", "reviewer", "ai_reviewer", "transformer", "tool", "exporter"):
         raise HTTPException(400, "未知节点类型")
     if body.type in REWRITEABLE and not body.subtype:
         raise HTTPException(400, "改写/转换节点需要 format_type（tv_script/newspaper/wechat/...）")
@@ -277,7 +282,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn) -> dict
     try:
         if node.type in REWRITEABLE:
             candidates = await upstream_revisions(db, node)
-            src = _pick_revision(candidates, body.revision_id)
+            style_hint = next((r.content for r in candidates if _is_style(r) and (r.content or "").strip()), None)
+            src = _pick_revision([r for r in candidates if not _is_style(r)], body.revision_id)
             if not src or not (src.content or "").strip():
                 raise HTTPException(400, "缺少上游稿件内容，请先填写草稿并执行上游节点")
             cfg = node.config or {}
@@ -287,6 +293,7 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn) -> dict
                 src.title or "",
                 custom_prompt=cfg.get("prompt"),
                 model=cfg.get("model"),
+                style_hint=style_hint,
             )
             rev = Revision(project_id=node.project_id, node_id=node.id, parent_revision_id=src.id,
                            title=src.title or "", content=text, format_type=node.subtype,
@@ -296,8 +303,36 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn) -> dict
             await set_status(db, node, "done")
             return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model}
 
+        if node.type == "tool":
+            kind = (node.subtype or "condense").strip()
+            if kind not in TOOL_KINDS:
+                raise HTTPException(400, f"不支持的工具类型: {kind}")
+            candidates = [r for r in await upstream_revisions(db, node) if not _is_style(r)]
+            src = _pick_revision(candidates, body.revision_id)
+            if not src or not (src.content or "").strip():
+                raise HTTPException(400, "缺少上游稿件内容，请先填写草稿并执行上游节点")
+            cfg = node.config or {}
+            # 精简节点默认压缩目标 1/3（用户可在面板选 1/4、1/3、1/2）
+            ratio = None
+            if kind == "condense":
+                try:
+                    ratio = float(cfg.get("ratio")) if cfg.get("ratio") else 0.35
+                except Exception:
+                    ratio = 0.35
+            text, model = await tool_run(kind, src.title or "", src.content, cfg.get("prompt"), cfg.get("model"),
+                                         ratio=ratio)
+            rev = Revision(project_id=node.project_id, node_id=node.id, parent_revision_id=src.id,
+                           title=src.title or "", content=text, format_type=kind,
+                           status="rewritten", model=model)
+            db.add(rev)
+            await db.commit()
+            await set_status(db, node, "done")
+            return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model,
+                    "kind": kind, "chars": len(text)}
+
         if node.type == "reviewer":
-            pending = [r for r in await upstream_revisions(db, node) if r.status in ("rewritten", "reviewed")]
+            pending = [r for r in await upstream_revisions(db, node)
+                       if r.status in ("rewritten", "reviewed") and not _is_style(r)]
             if body.action == "approve":
                 for r in pending:
                     r.status = "approved"
@@ -318,7 +353,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn) -> dict
             return {"node_id": node.id, "status": "waiting", "pending": len(pending), "action": None}
 
         if node.type == "ai_reviewer":
-            pending = [r for r in await upstream_revisions(db, node) if r.status in ("rewritten", "reviewed")]
+            pending = [r for r in await upstream_revisions(db, node)
+                       if r.status in ("rewritten", "reviewed") and not _is_style(r)]
             if not pending:
                 await set_status(db, node, "done")
                 return {"node_id": node.id, "status": "waiting", "pending": 0,
@@ -341,7 +377,7 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn) -> dict
                     "count": len(pending), "passed": passed_cnt, "reviews": reviews}
 
         if node.type == "exporter":
-            candidates = await upstream_revisions(db, node)
+            candidates = [r for r in await upstream_revisions(db, node) if not _is_style(r)]
             src = _pick_revision(candidates, body.revision_id)
             if not src or not (src.content or "").strip():
                 raise HTTPException(400, "没有可导出的成稿，请先完成上游改写/转换")

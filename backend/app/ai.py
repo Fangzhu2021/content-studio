@@ -34,7 +34,8 @@ AVAILABLE_MODELS = ["deepseek-chat", "deepseek-reasoner"]
 
 
 async def rewrite(format_type: str, content: str, title: str = "",
-                  custom_prompt: str | None = None, model: str | None = None) -> tuple[str, str]:
+                  custom_prompt: str | None = None, model: str | None = None,
+                  style_hint: str | None = None) -> tuple[str, str]:
     """返回 (改写文本, 模型名)。
 
     - custom_prompt：节点级自定义提示词（node.config.prompt），为空则用该格式的默认模板
@@ -47,6 +48,8 @@ async def rewrite(format_type: str, content: str, title: str = "",
     prompt = (custom_prompt or "").strip() or PROMPTS.get(format_type)
     if not prompt:
         raise ValueError(f"不支持的格式: {format_type}")
+    if style_hint and style_hint.strip():
+        prompt = prompt + "\n\n【参考风格要求（由「风格提取」节点提供，请一并遵循）】\n" + style_hint.strip()
     use_model = (model or "").strip() or DEFAULT_MODEL
     if use_model not in AVAILABLE_MODELS:
         use_model = DEFAULT_MODEL
@@ -171,3 +174,104 @@ async def ai_review(title: str, content: str,
             passed = True
     tag = "严格" if strict else "标准"
     return passed, f"{comment}（评分 {score}·{tag}）", use_model
+
+# ---------------- 工具节点：稿件精简 / 风格提取 ----------------
+CONDENSE_PROMPT = (
+    "你是一名新闻编辑助手。请把下面的稿件精简为「精简稿」：\n"
+    "1) 目标篇幅约为原稿的 1/3~1/2；若原稿本身较短（不足 300 字），则只删除冗余、套话与重复表述，保留全部核心事实，不必强行压缩；\n"
+    "2) 必须保留：时间、地点、主体、事件、关键数据与明确要求；\n"
+    "3) 保留原标题；\n"
+    "4) 语句通顺、可直接使用。只输出精简后的稿件正文，不要任何解释或前后缀说明。"
+)
+STYLE_PROMPT = (
+    "你是一名文体分析专家。请阅读下面的稿件，提炼出可直接复用的『写作风格提示词』，"
+    "覆盖：语气与视角、句式节奏、段落结构、用词偏好、开头与结尾手法、标点/格式习惯。"
+    "输出要求：以「你是一位……」开头的、可直接粘贴到其他 AI 节点使用的提示词，不超过 300 字，"
+    "不要复述原文的具体事实内容。只输出提示词本身。"
+)
+PROMPTS["condense"] = CONDENSE_PROMPT
+PROMPTS["style_prompt"] = STYLE_PROMPT
+FORMAT_LABELS["condense"] = "稿件精简"
+FORMAT_LABELS["style_prompt"] = "风格提取"
+
+TOOL_KINDS = ("condense", "style_prompt")
+
+
+async def tool_run(kind: str, title: str, content: str,
+                   custom_prompt: str | None = None,
+                   model: str | None = None,
+                   ratio: float | None = None) -> tuple[str, str]:
+    """工具节点：kind = condense（稿件精简）| style_prompt（风格提取）。"""
+    if kind not in TOOL_KINDS:
+        raise ValueError(f"不支持的工具类型: {kind}")
+    s = get_settings()
+    if not s.deepseek_api_key:
+        return _mock_tool(kind, title, content), "mock(未配置Key)"
+    prompt = (custom_prompt or "").strip() or PROMPTS[kind]
+    use_model = (model or "").strip() or DEFAULT_MODEL
+    if use_model not in AVAILABLE_MODELS:
+        use_model = DEFAULT_MODEL
+    if kind == "condense" and ratio:
+        try:
+            pct = max(10, min(90, int(float(ratio) * 100)))
+            prompt = prompt + f"\n（本次要求：压缩到原稿约 {pct}% 的篇幅，请严格遵守）"
+        except Exception:
+            pass
+    payload = {
+        "model": use_model,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"标题：{title or '（无）'}\n\n稿件正文：\n{content}"},
+        ],
+        "temperature": 0.4,
+        "max_tokens": 4000,
+    }
+    headers = {"Authorization": f"Bearer {s.deepseek_api_key}"}
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(s.deepseek_base_url.rstrip("/") + "/chat/completions", json=payload, headers=headers)
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"].strip()
+
+    # 精简节点：首轮若超出目标字数较多，做 1~2 次强制压缩到明确字数上限
+    if kind == "condense" and ratio:
+        try:
+            target = max(50, int(len(content or "") * float(ratio)))
+        except Exception:
+            target = None
+        for _ in range(2):
+            if not target or len(text) <= target * 1.15:
+                break
+            try:
+                text = await _compress_to(text, target, use_model, s.deepseek_api_key, s.deepseek_base_url)
+            except Exception:
+                break
+    return text, use_model
+
+
+def _mock_tool(kind: str, title: str, content: str) -> str:
+    body = (content or "").strip()
+    if kind == "condense":
+        keep = body[: max(60, int(len(body) / 3))]
+        return f"【精简稿 · 模拟模式】\n{title}\n\n{keep}……"
+    return ("【风格提示词 · 模拟模式】\n你是一位语言平实、结构清晰的新闻编辑："
+            "开篇直陈核心事实，中段按时间顺序展开，多用短句，结尾给出明确结论。（配置 DeepSeek Key 后为真实提炼结果）")
+
+async def _compress_to(text: str, target: int, model: str, api_key: str, base_url: str) -> str:
+    """二次压缩：把 text 压到不超过 target 个字符（模型首轮往往删得不够）。"""
+    sys_prompt = (
+        f"请把下面这段文字改写为 {target} 个字符左右的精简稿（可略多略少，但请尽量贴近）："
+        "只保留最重要的事实（谁、何时、何地、何事、关键数据），删去所有修饰、套话与次要细节；"
+        "语句通顺，可直接使用。只输出精简后的正文，不要标题以外的任何说明。"
+    )
+    payload = {
+        "model": model,
+        "messages": [{"role": "system", "content": sys_prompt},
+                     {"role": "user", "content": text}],
+        "temperature": 0.3,
+        "max_tokens": 2000,
+    }
+    headers = {"Authorization": f"Bearer {api_key}"}
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(base_url.rstrip("/") + "/chat/completions", json=payload, headers=headers)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()

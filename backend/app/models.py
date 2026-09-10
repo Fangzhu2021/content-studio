@@ -29,7 +29,7 @@ class Project(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
-NODE_TYPES = ("draft_input", "rewriter", "reviewer", "ai_reviewer", "transformer", "exporter")
+NODE_TYPES = ("draft_input", "rewriter", "reviewer", "ai_reviewer", "transformer", "tool", "exporter")
 
 
 class CanvasNode(Base):

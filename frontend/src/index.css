@@ -169,3 +169,5 @@ textarea.small { font-size: 13px; }
 .palette-item.pi-exporter { background: #f7fef9; }
 .palette-item.pi-exporter:hover { border-color: #16a34a; box-shadow: 0 2px 8px rgba(22, 163, 74, .2); }
 .palette-item.pi-transformer:hover { border-color: #0ea5e9; box-shadow: 0 2px 8px rgba(14, 165, 233, .2); }
+
+.csnode.k-tool { border-color: #7c3aed; }

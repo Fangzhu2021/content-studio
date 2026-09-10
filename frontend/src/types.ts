@@ -1,7 +1,7 @@
 export interface User { id: string; username: string }
 export interface ProjectItem { id: string; name: string; created_at?: string | null }
 export interface Pos { x: number; y: number }
-export type NodeType = 'draft_input' | 'rewriter' | 'reviewer' | 'ai_reviewer' | 'transformer' | 'exporter'
+export type NodeType = 'draft_input' | 'rewriter' | 'reviewer' | 'ai_reviewer' | 'transformer' | 'tool' | 'exporter'
 export interface CanvasNode {
   id: string
   type: NodeType
@@ -38,6 +38,8 @@ export const FORMATS: Record<string, string> = {
   douyin: '抖音口播脚本',
   xiaohongshu: '小红书笔记',
   toutiao: '头条新闻',
+  condense: '稿件精简',
+  style_prompt: '风格提取',
 }
 
 export const TYPE_META: Record<NodeType, { label: string; color: string; icon: string; desc: string }> = {
@@ -46,6 +48,7 @@ export const TYPE_META: Record<NodeType, { label: string; color: string; icon: s
   reviewer: { label: '人工审定', color: '#d97706', icon: '✅', desc: '批注/通过/打回' },
   ai_reviewer: { label: 'AI 审稿', color: '#0891b2', icon: '🤖', desc: '自动审稿（通过/打回）' },
   transformer: { label: '新媒体转换', color: '#0ea5e9', icon: '🔄', desc: '多平台风格改写' },
+  tool: { label: '工具', color: '#7c3aed', icon: '🧰', desc: '稿件精简 / 风格提取' },
   exporter: { label: '成稿导出', color: '#16a34a', icon: '📤', desc: '复制/下载成稿' },
 }
 
