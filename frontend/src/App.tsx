@@ -4,6 +4,7 @@ import ConfigPanel from './Panels'
 import { api } from './api'
 import { errText, useStore } from './store'
 import { PALETTE } from './nodes'
+import { TYPE_META } from './types'
 import { FORMATS } from './types'
 
 const DND = 'application/cs-node'
@@ -86,18 +87,24 @@ function Palette() {
       <div className="palette-title">节点库 <span className="dim">（拖到画布）</span></div>
       {PALETTE.map((g) => (
         <div key={g.group}>
-          <div className="palette-group">{g.group}</div>
+          <div className="palette-group">
+            <i className="gdot" style={{ background: g.color }} />
+            <span>{g.group}</span>
+            {g.hint ? <span className="ghint">{g.hint}</span> : null}
+          </div>
           {g.items.map((it) => (
             <div
               key={it.kind + it.subtype}
-              className="palette-item"
+              className={`palette-item pi-${it.kind}`}
+              style={{ borderLeftColor: (TYPE_META as any)[it.kind]?.color || g.color }}
               draggable
               onDragStart={(e) => { e.dataTransfer.setData(DND, JSON.stringify(it)); e.dataTransfer.effectAllowed = 'move' }}
               onClick={() => select(null)}
               title={currentId ? '拖到画布中放置' : '请先打开一个项目'}
             >
-              <span>{it.icon}</span>
-              <span>{it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind]}</span>
+              <span className="pi-ico">{it.icon}</span>
+              <span className="pi-name">{it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind]}</span>
+              {it.kind === 'exporter' ? <span className="pi-badge">终稿</span> : null}
             </div>
           ))}
         </div>

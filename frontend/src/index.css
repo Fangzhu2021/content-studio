@@ -156,3 +156,16 @@ textarea.small { font-size: 13px; }
   color: #334155 !important; background: #f8fafc; border-radius: 8px; padding: 8px 10px; margin: 10px 0; }
 .strict-row input { width: auto; margin-top: 2px; }
 .strict-row .dim { color: #94a3b8; font-size: 11px; }
+
+/* ---------- 节点库视觉区分（宽度保持不变） ---------- */
+.palette-group { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.palette-group .gdot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
+.palette-group .ghint { font-size: 10px; color: #94a3b8; }
+.palette-item { border-left-width: 3px !important; padding-left: 8px; }
+.palette-item .pi-ico { font-size: 14px; line-height: 1; }
+.palette-item .pi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-item .pi-badge { font-size: 10px; color: #15803d; background: #dcfce7; border: 1px solid #86efac;
+  border-radius: 99px; padding: 0 5px; line-height: 15px; flex: 0 0 auto; }
+.palette-item.pi-exporter { background: #f7fef9; }
+.palette-item.pi-exporter:hover { border-color: #16a34a; box-shadow: 0 2px 8px rgba(22, 163, 74, .2); }
+.palette-item.pi-transformer:hover { border-color: #0ea5e9; box-shadow: 0 2px 8px rgba(14, 165, 233, .2); }

@@ -41,23 +41,27 @@ export function CSNode(props: any) {
 export const nodeTypes = { cs: CSNode }
 
 export interface PaletteItem { kind: string; subtype: string; icon: string }
+export interface PaletteGroup { group: string; color: string; hint?: string; items: PaletteItem[] }
 
-export const PALETTE: { group: string; items: PaletteItem[] }[] = [
-  { group: '输入', items: [{ kind: 'draft_input', subtype: '', icon: '📝' }] },
+export const PALETTE: PaletteGroup[] = [
+  { group: '输入', color: '#64748b', items: [{ kind: 'draft_input', subtype: '', icon: '📝' }] },
   {
-    group: 'AI 改写', items: [
+    group: 'AI 改写', color: '#6366f1', hint: '（原稿 → TV/报刊稿）',
+    items: [
       { kind: 'rewriter', subtype: 'tv_script', icon: '📺' },
       { kind: 'rewriter', subtype: 'newspaper', icon: '📰' },
     ],
   },
   {
-    group: '审稿', items: [
+    group: '审稿', color: '#d97706', hint: '（人工 或 AI）',
+    items: [
       { kind: 'reviewer', subtype: '', icon: '✅' },
       { kind: 'ai_reviewer', subtype: '', icon: '🤖' },
     ],
   },
   {
-    group: '新媒体转换', items: [
+    group: '新媒体转换', color: '#0ea5e9', hint: '（转成平台风格）',
+    items: [
       { kind: 'transformer', subtype: 'wechat', icon: '💬' },
       { kind: 'transformer', subtype: 'weibo', icon: '🔥' },
       { kind: 'transformer', subtype: 'douyin', icon: '🎬' },
@@ -66,7 +70,8 @@ export const PALETTE: { group: string; items: PaletteItem[] }[] = [
     ],
   },
   {
-    group: '成稿导出', items: [
+    group: '成稿导出', color: '#16a34a', hint: '（终稿·复制发布）',
+    items: [
       { kind: 'exporter', subtype: 'wechat', icon: '📤' },
       { kind: 'exporter', subtype: 'weibo', icon: '📤' },
       { kind: 'exporter', subtype: 'douyin', icon: '📤' },
