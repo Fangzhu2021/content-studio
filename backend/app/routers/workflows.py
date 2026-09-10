@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ai import AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, TOOL_KINDS, ai_review, rewrite, tool_run
+from ..ai import (AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, TOOL_KINDS, ai_review, rewrite,
+                  tool_run, typeset)
 from ..audit import log as audit_log
 from ..templates import effective_prompts, resolve_prompt
 from ..usage import ensure_quota, record_usage
@@ -406,11 +407,38 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             src = _pick_revision(candidates, body.revision_id)
             if not src or not (src.content or "").strip():
                 raise HTTPException(400, "没有可导出的成稿，请先完成上游改写/转换")
+
+            cfg = node.config or {}
+            export_key = f"export_{node.subtype}" if node.subtype else ""
+            prompt = cfg.get("prompt") or (await resolve_prompt(db, user, export_key) if export_key else None)
+
+            if not prompt:
+                # 无排版提示词 → 保持"直接成稿"（不调用 AI，不消耗额度）
+                src.status = "finalized"
+                src.review_comment = body.comment or src.review_comment
+                await db.commit()
+                await set_status(db, node, "done")
+                return {"node_id": node.id, "status": "done", "revision_id": src.id,
+                        "format_type": src.format_type, "typeset": False}
+
+            await ensure_quota(db, user)
+            text, model, usage = await typeset(node.subtype, src.title or "", src.content,
+                                               custom_prompt=prompt, model=cfg.get("model"))
+            await record_usage(db, user=user, kind="export", model=model, project_id=node.project_id,
+                               node_id=node.id, **usage)
+            rev = Revision(project_id=node.project_id, node_id=node.id, parent_revision_id=src.id,
+                           title=src.title or "", content=text,
+                           format_type=src.format_type or node.subtype,
+                           status="finalized", model=model,
+                           review_comment=body.comment or "")
+            db.add(rev)
             src.status = "finalized"
-            src.review_comment = body.comment or src.review_comment
             await db.commit()
+            await db.refresh(rev)
             await set_status(db, node, "done")
-            return {"node_id": node.id, "status": "done", "revision_id": src.id, "format_type": src.format_type}
+            return {"node_id": node.id, "status": "done", "revision_id": rev.id,
+                    "format_type": rev.format_type, "typeset": True, "model": model,
+                    "chars": len(text)}
 
         # draft_input
         await set_status(db, node, "done")

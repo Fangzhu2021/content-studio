@@ -32,6 +32,14 @@ BUILTIN_NODES: list[dict] = [
 PROMPT_KEYS = list(PROMPTS.keys())   # tv_script/newspaper/wechat/weibo/douyin/xiaohongshu/toutiao/ai_review/condense/style_prompt
 
 
+def _default_prompt_for(spec: dict) -> str:
+    """节点的默认提示词：导出节点用 export_* 排版提示词，其余用格式提示词"""
+    kind, subtype = spec.get("kind", ""), spec.get("subtype", "")
+    if kind == "exporter" and subtype:
+        return PROMPTS.get(f"export_{subtype}", "") or PROMPTS.get(subtype, "")
+    return PROMPTS.get(subtype, "") or ""
+
+
 def node_key(kind: str, subtype: str) -> str:
     return f"{kind}:{subtype}" if subtype else kind
 
@@ -46,8 +54,15 @@ async def seed_templates(db: AsyncSession) -> None:
             group=spec["group"], kind=spec["kind"], subtype=spec["subtype"], label=spec["label"],
             icon=spec.get("icon", ""), color=spec.get("color", "#64748b"), hint=spec.get("hint", ""),
             sort=spec.get("sort", 100), scope="global", enabled=True,
-            prompt=PROMPTS.get(spec["subtype"], "") or "",
+            prompt=_default_prompt_for(spec),
         ))
+    # 纠正历史数据：导出节点的默认提示词曾被写成转换节点提示词
+    exporters = (await db.execute(select(NodeTemplate).where(NodeTemplate.kind == "exporter"))).scalars().all()
+    for t in exporters:
+        want = _default_prompt_for({"kind": "exporter", "subtype": t.subtype})
+        if want and t.prompt != want and (t.prompt or "") == PROMPTS.get(t.subtype, ""):
+            t.prompt = want
+
     existing_prompts = {p.key for p in (await db.execute(select(PromptTemplate))).scalars()}
     for key in PROMPT_KEYS:
         if key in existing_prompts:

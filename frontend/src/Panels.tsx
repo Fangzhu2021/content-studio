@@ -16,6 +16,65 @@ function copyText(text: string) {
     navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done))
   } else fallbackCopy(text, done)
 }
+function looksLikeHtml(text: string) {
+  return /^\s*<(p|h1|h2|h3|section|div|span|blockquote|br|strong|ul|ol)\b/i.test(text || '')
+}
+
+function htmlToPlain(html: string) {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|h1|h2|h3|div|section|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** 复制为富文本（HTML）：粘贴进秀米 / 微信编辑器可保留排版 */
+async function copyRichHtml(html: string) {
+  const msg = (t: string) => useStore.getState().toastMsg(t)
+  const CI = (window as unknown as { ClipboardItem?: any }).ClipboardItem
+  try {
+    if (!navigator.clipboard || !CI) throw new Error('unsupported')
+    await navigator.clipboard.write([new CI({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([htmlToPlain(html)], { type: 'text/plain' }),
+    })])
+    msg('已复制富文本，可直接粘贴进秀米 / 微信编辑器')
+  } catch {
+    // 回退一：用 contenteditable + execCommand 复制，多数浏览器仍能保留富文本格式
+    const box = document.createElement('div')
+    box.contentEditable = 'true'
+    box.innerHTML = html
+    box.style.position = 'fixed'
+    box.style.left = '-9999px'
+    box.style.top = '0'
+    document.body.appendChild(box)
+    const range = document.createRange()
+    range.selectNodeContents(box)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    let ok = false
+    try { ok = document.execCommand('copy') } catch { ok = false }
+    sel?.removeAllRanges()
+    document.body.removeChild(box)
+    if (ok) {
+      msg('已复制成稿，可直接粘贴进秀米 / 微信编辑器')
+      return
+    }
+    // 回退二：复制源码，提示用编辑器的 HTML 模式
+    const ta = document.createElement('textarea')
+    ta.value = html
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+      msg('已复制 HTML 源码：请在编辑器的「HTML/源码」模式粘贴')
+    } catch { msg('复制失败，请手动选中复制') }
+    document.body.removeChild(ta)
+  }
+}
+
 function fallbackCopy(text: string, done: () => void) {
   const ta = document.createElement('textarea')
   ta.value = text
@@ -343,6 +402,13 @@ function ExportPanel({ node }: { node: FlowNode }) {
     void loadSources().then((list) => {
       if (list.length) { setPick(list[0].id); setPreview(list[0]) }
     })
+    // 打开面板时自动载入本节点上次生成的成稿（含排版好的 HTML）
+    void (async () => {
+      try {
+        const mine = await api.nodeRevision(node.id)
+        if (mine && (mine.content || '').trim()) { setFinalRev(mine); setPreview(mine) }
+      } catch { /* 忽略 */ }
+    })()
   }, [node.id])
 
   function choose(s: Revision) { setPick(s.id); setPreview(s) }
@@ -367,20 +433,24 @@ function ExportPanel({ node }: { node: FlowNode }) {
   }
 
   function download(rev: Revision) {
-    const blob = new Blob([rev.content || ''], { type: 'text/markdown;charset=utf-8' })
+    const html = looksLikeHtml(rev.content || '')
+    const blob = new Blob([rev.content || ''], { type: html ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `${rev.title || '成稿'}.md`
+    a.download = `${rev.title || '成稿'}.${html ? 'html' : 'md'}`
     a.click()
     URL.revokeObjectURL(a.href)
-    useStore.getState().toastMsg('已下载 .md 文件')
+    useStore.getState().toastMsg(html ? '已下载 .html（可用浏览器打开/导入编辑器）' : '已下载 .md 文件')
   }
 
   const chars = preview?.content ? preview.content.length : 0
 
   return (
     <div className="panel-body">
-      <p className="tip">选择一篇上游平台稿生成最终成稿；复制/下载后到对应平台后台粘贴发布（系统不做平台直推）。</p>
+      <p className="tip">
+        选择一篇上游平台稿 → 点「生成最终成稿」：系统按<b>排版提示词</b>把 Markdown 稿排成成稿。
+        公众号会输出<b>内联样式 HTML</b>，可一键复制富文本后直接粘贴进秀米 / 微信编辑器（无需再手动排版）。
+      </p>
 
       <h4>1. 选择来源稿（点击即预览）</h4>
       {sources.length === 0 ? (
@@ -397,8 +467,9 @@ function ExportPanel({ node }: { node: FlowNode }) {
         </label>
       ))}
       <button className="primary wide" onClick={run} disabled={busy || sources.length === 0}>
-        {busy ? '⏳ 生成中…' : '📤 生成最终成稿'}
+        {busy ? '⏳ 排版中…' : '📤 排版并生成最终成稿'}
       </button>
+      <PromptEditor node={node} defaultKey={`export_${node.data.subtype || 'wechat'}`} />
 
       <h4>2. 成稿预览 {preview ? <span className="dim">（{chars} 字）</span> : null}</h4>
       {preview ? (
@@ -411,12 +482,28 @@ function ExportPanel({ node }: { node: FlowNode }) {
           </div>
           <div className="rev-title">{preview.title || '（无标题）'}</div>
           {preview.review_comment ? <div className="comment">审定意见：{preview.review_comment}</div> : null}
-          <textarea className="rev-content preview-content" readOnly value={preview.content || ''} spellCheck={false} />
+          {looksLikeHtml(preview.content || '') ? (
+            <>
+              <div className="html-preview" dangerouslySetInnerHTML={{ __html: preview.content }} />
+              <details className="raw-detail">
+                <summary className="dim">查看 HTML 源码</summary>
+                <textarea className="rev-content preview-content" readOnly value={preview.content || ''} spellCheck={false} />
+              </details>
+            </>
+          ) : (
+            <textarea className="rev-content preview-content" readOnly value={preview.content || ''} spellCheck={false} />
+          )}
           {preview.content ? (
             <div className="btn-row">
-              <button className="primary wide" onClick={() => copyText(preview.content || '')}>
-                📋 一键复制预览全文（{preview.content.length} 字）
-              </button>
+              {looksLikeHtml(preview.content) ? (
+                <button className="primary wide" onClick={() => copyRichHtml(preview.content || '')}>
+                  📋 一键复制富文本（粘贴进秀米/微信编辑器）
+                </button>
+              ) : (
+                <button className="primary wide" onClick={() => copyText(preview.content || '')}>
+                  📋 一键复制预览全文（{preview.content.length} 字）
+                </button>
+              )}
             </div>
           ) : null}
         </div>
@@ -426,10 +513,15 @@ function ExportPanel({ node }: { node: FlowNode }) {
 
       {finalRev ? (
         <div className="final-box">
-          <div className="final-head">✅ 最终成稿已就绪 — 复制或下载后发布</div>
+          <div className="final-head">
+            ✅ 最终成稿已就绪 — {looksLikeHtml(finalRev.content || '') ? '复制富文本后粘贴进秀米 / 微信编辑器' : '复制后到平台后台发布'}
+          </div>
           <div className="btn-row">
-            <button className="primary" onClick={() => copyText(finalRev.content || '')}>📋 复制全文</button>
-            <button onClick={() => download(finalRev)}>⬇ 下载 .md</button>
+            {looksLikeHtml(finalRev.content || '') ? (
+              <button className="primary" onClick={() => copyRichHtml(finalRev.content || '')}>📋 复制富文本（带排版）</button>
+            ) : null}
+            <button onClick={() => copyText(finalRev.content || '')}>📋 复制全文</button>
+            <button onClick={() => download(finalRev)}>⬇ 下载 {looksLikeHtml(finalRev.content || '') ? '.html' : '.md'}</button>
           </div>
         </div>
       ) : null}

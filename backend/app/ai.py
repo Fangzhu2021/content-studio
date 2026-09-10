@@ -302,3 +302,87 @@ async def _post_chat(url: str, payload: dict, headers: dict) -> tuple[str, dict]
     text = data["choices"][0]["message"]["content"].strip()
     pchars = sum(len(m.get("content", "")) for m in payload.get("messages", []))
     return text, _usage_of(data, elapsed, pchars, len(text))
+
+# ---------------- 成稿导出：排版处理（可粘贴进秀米/微信编辑器） ----------------
+EXPORT_PROMPTS = {
+    "wechat": (
+        "你是一名公众号排版编辑。请把下面的稿件输出为「可直接粘贴进秀米 / 微信编辑器」的富文本 HTML 片段：\n"
+        "1) 只输出 HTML 片段本身：不要 markdown 标记、不要 ```html 代码围栏、不要 <html>/<body> 标签；\n"
+        "2) 所有样式必须写成内联 style：不要 class、不要 <style> 标签、不要外链 CSS；只使用微信编辑器支持的属性："
+        "font-size、color、line-height、text-align、font-weight、background-color、padding、margin、border-radius、border-left；\n"
+        "3) 结构规范：主标题（居中、加粗、约 22px）→ 导语（引用块：浅灰底 #f7f7f7、左侧 3px 主色竖线、内边距 12px）"
+        "→ 正文分段（16px、行高 1.75、段间距 1em）→ 小标题（加粗、左侧 4px 主色竖线、内边距 6px 10px）"
+        "→ 要点用 <p> 加「•」符号（避免 <ul> 被编辑器吞样式）→ 结尾一句引导关注；\n"
+        "4) 段落要短，每段 1~3 句；正文标点统一用中文标点；数字与单位之间不要多余空格；\n"
+        "5) 只做排版与轻微润色：不得新增事实、不得改动数字、人名、机构名等专有信息；\n"
+        "6) 主色用 #c0392b，需要强调的词用 <strong> 并配主色。"
+    ),
+    "xiaohongshu": (
+        "你是一名小红书运营。请把稿件整理为可直接粘贴发布的笔记文本：开头一行吸睛标题（可加 emoji），"
+        "正文分段、每段简短、适度使用 emoji 与换行，结尾 3~5 个话题标签。只输出笔记正文，不要任何解释。"
+    ),
+    "toutiao": (
+        "你是一名头条号编辑。请把稿件整理为可直接粘贴发布的正文：第一行是标题感语句，随后分段成文，"
+        "段落短、信息密度高，关键信息可用【】标注。只输出正文。"
+    ),
+    "weibo": (
+        "你是一名微博运营。请把稿件整理为可直接发布的微博文案：核心内容 140 字左右，换行清晰，结尾附 2~3 个话题标签。只输出文案。"
+    ),
+    "douyin": (
+        "你是一名短视频编导。请把稿件整理为可直接粘贴的抖音口播脚本：开头钩子、正文口语短句、结尾引导互动，"
+        "可用「画面：」「口播：」标注。只输出脚本。"
+    ),
+}
+for _k, _v in EXPORT_PROMPTS.items():
+    PROMPTS[f"export_{_k}"] = _v
+    FORMAT_LABELS[f"export_{_k}"] = f"{FORMAT_LABELS.get(_k, _k)}排版成稿"
+
+EXPORT_HTML_KINDS = ("wechat",)
+
+
+async def typeset(subtype: str, title: str, content: str,
+                  custom_prompt: str | None = None,
+                  model: str | None = None) -> tuple[str, str, dict]:
+    """成稿导出：把稿件排版为可粘贴的成稿（公众号输出内联样式 HTML）。"""
+    s = get_settings()
+    key = f"export_{subtype}"
+    if not s.deepseek_api_key:
+        return _mock_typeset(subtype, title, content), "mock(未配置Key)", _zero_usage(len(content or ""), len(content or ""))
+    prompt = (custom_prompt or "").strip() or PROMPTS.get(key) or PROMPTS.get("wechat")
+    use_model = (model or "").strip() or DEFAULT_MODEL
+    if use_model not in AVAILABLE_MODELS:
+        use_model = DEFAULT_MODEL
+    payload = {
+        "model": use_model,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"标题：{title or '（无）'}\n\n待排版稿件：\n{content}"},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 8000,
+    }
+    headers = {"Authorization": f"Bearer {s.deepseek_api_key}"}
+    text, usage = await _post_chat(s.deepseek_base_url.rstrip("/") + "/chat/completions", payload, headers)
+    # 去掉可能被包上的 markdown 代码围栏
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+    usage["output_chars"] = len(text)
+    return text, use_model, usage
+
+
+def _mock_typeset(subtype: str, title: str, content: str) -> str:
+    body = (content or "").strip()
+    if subtype in EXPORT_HTML_KINDS:
+        paras = "".join(
+            f'<p style="font-size:16px;line-height:1.75;margin:1em 0;color:#333;">{ln.strip()}</p>'
+            for ln in body.splitlines() if ln.strip()
+        )
+        return (f'<h1 style="font-size:22px;font-weight:700;text-align:center;margin:0 0 16px;color:#222;">{title}</h1>'
+                f'{paras}'
+                '<p style="font-size:14px;color:#888;text-align:center;margin-top:24px;">'
+                '（模拟模式输出 · 配置 DeepSeek Key 后为真实排版）</p>')
+    return f"{title}\n\n{body}"
