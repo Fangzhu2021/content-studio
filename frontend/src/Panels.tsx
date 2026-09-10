@@ -88,12 +88,10 @@ function DraftPanel({ node }: { node: FlowNode }) {
   )
 }
 
-/* ---------------- AI 改写 / 转换 ---------------- */
-function AiPanel({ node }: { node: FlowNode }) {
-  const { rev, reload } = useRevision(node.id)
-  const [busy, setBusy] = useState(false)
-  const [showPrompt, setShowPrompt] = useState(false)
-  const [draftPrompt, setDraftPrompt] = useState('')
+/* ---------------- 通用：提示词编辑器（预填默认模板，可在其上修改） ---------------- */
+function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string }) {
+  const [show, setShow] = useState(false)
+  const [draft, setDraft] = useState('')
   const [model, setModel] = useState('deepseek-chat')
   const [defaultPrompt, setDefaultPrompt] = useState('')
   const [models, setModels] = useState<string[]>(['deepseek-chat', 'deepseek-reasoner'])
@@ -102,35 +100,32 @@ function AiPanel({ node }: { node: FlowNode }) {
 
   const cfg = (node.data.config || {}) as Record<string, any>
   const custom = !!(cfg.prompt && String(cfg.prompt).trim())
-  const isTransform = node.data.kind === 'transformer'
   const effectiveModel = cfg.model ? String(cfg.model) : 'deepseek-chat'
 
   useEffect(() => {
     void (async () => {
       try {
         const d = await loadPromptDefaults()
-        setDefaultPrompt(d.prompts[node.data.subtype] || '')
+        setDefaultPrompt(d.prompts[defaultKey] || '')
         if (d.models?.length) setModels(d.models)
       } catch { /* 忽略 */ }
     })()
-  }, [node.data.subtype])
+  }, [defaultKey])
 
-  // 切换节点/默认模板加载完成后：用「已保存的自定义提示词」或「系统默认模板」预填编辑器
-  // 让用户直接在默认版本上修改，而不是面对空白框
   useEffect(() => {
-    const key = `${node.id}|${node.data.subtype}|${defaultPrompt ? 1 : 0}`
+    const key = `${node.id}|${defaultKey}|${defaultPrompt ? 1 : 0}`
     if (!defaultPrompt || initRef.current === key) return
     initRef.current = key
-    setDraftPrompt(cfg.prompt ? String(cfg.prompt) : defaultPrompt)
+    setDraft(cfg.prompt ? String(cfg.prompt) : defaultPrompt)
     setModel(cfg.model ? String(cfg.model) : 'deepseek-chat')
-  }, [defaultPrompt, node.id, node.data.subtype, cfg.prompt, cfg.model])
+  }, [defaultPrompt, node.id, defaultKey, cfg.prompt, cfg.model])
 
   useEffect(() => { setSaved(false) }, [node.id])
 
-  const dirty = draftPrompt.trim() !== (custom ? String(cfg.prompt).trim() : (defaultPrompt || '').trim())
+  const dirty = draft.trim() !== (custom ? String(cfg.prompt).trim() : (defaultPrompt || '').trim())
     || model !== effectiveModel
 
-  async function savePrompt(nextPrompt: string, nextModel: string, resetToDefault = false) {
+  async function save(nextPrompt: string, nextModel: string, resetToDefault = false) {
     const nextCfg: Record<string, unknown> = { ...cfg }
     const trimmed = nextPrompt.trim()
     const sameAsDefault = !trimmed || trimmed === (defaultPrompt || '').trim()
@@ -140,10 +135,9 @@ function AiPanel({ node }: { node: FlowNode }) {
     else delete nextCfg.model
     try {
       const updated = await api.updateNode(node.id, { config: nextCfg })
-      const savedCfg = (updated as any).config || nextCfg
-      useStore.getState().syncNode(node.id, { config: savedCfg })
+      useStore.getState().syncNode(node.id, { config: (updated as any).config || nextCfg })
       if (resetToDefault || sameAsDefault) {
-        setDraftPrompt(defaultPrompt)          // 保留默认文本，方便继续改
+        setDraft(defaultPrompt)
         setModel(nextModel || 'deepseek-chat')
       }
       useStore.getState().toastMsg(sameAsDefault
@@ -153,6 +147,43 @@ function AiPanel({ node }: { node: FlowNode }) {
       setTimeout(() => setSaved(false), 2600)
     } catch (e) { useStore.getState().toastMsg(errText(e)) }
   }
+
+  return (
+    <div className="prompt-box">
+      <div className="prompt-head">
+        <span>🧠 提示词设置 {custom ? <span className="chip on">已自定义</span> : <span className="chip">默认模板</span>}</span>
+        <button onClick={() => setShow(!show)}>{show ? '收起' : '修改'}</button>
+      </div>
+      {show ? (
+        <>
+          <label>模型档位</label>
+          <select value={model} onChange={(e) => setModel(e.target.value)}>
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m === 'deepseek-reasoner' ? 'deepseek-reasoner（深度思考，更慢更细）' : 'deepseek-chat（默认，推荐）'}
+              </option>
+            ))}
+          </select>
+          <label>该节点提示词（已预填{cfg.prompt ? '本节点已保存的内容' : '系统默认模板'}，可直接修改）</label>
+          <textarea className="rev-content" rows={10} value={draft} onChange={(e) => setDraft(e.target.value)} />
+          <div className="btn-row">
+            <button className="primary" onClick={() => save(draft, model)}>💾 保存提示词</button>
+            <button onClick={() => save('', 'deepseek-chat', true)}>↺ 恢复默认</button>
+            <button onClick={() => setDraft(defaultPrompt)}>⤵ 重新载入默认模板</button>
+          </div>
+          {dirty ? <div className="hint-warn">⚠ 提示词已修改但尚未保存，保存后点执行生效</div> : null}
+          {saved ? <div className="ok">✔ 已保存</div> : null}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+/* ---------------- AI 改写 / 转换 ---------------- */
+function AiPanel({ node }: { node: FlowNode }) {
+  const { rev, reload } = useRevision(node.id)
+  const [busy, setBusy] = useState(false)
+  const isTransform = node.data.kind === 'transformer'
 
   async function run() {
     setBusy(true)
@@ -176,36 +207,7 @@ function AiPanel({ node }: { node: FlowNode }) {
           : `把草稿改写为「${FORMATS[node.data.subtype]}」。上游：草稿输入或上一层输出。`}
       </p>
       <button className="primary wide" onClick={run} disabled={busy}>{busy ? '⏳ 执行中…' : '⚡ 执行改写'}</button>
-
-      <div className="prompt-box">
-        <div className="prompt-head">
-          <span>🧠 提示词设置 {custom ? <span className="chip on">已自定义</span> : <span className="chip">默认模板</span>}</span>
-          <button onClick={() => setShowPrompt(!showPrompt)}>{showPrompt ? '收起' : '修改'}</button>
-        </div>
-        {showPrompt ? (
-          <>
-            <label>模型档位</label>
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {models.map((m) => (
-                <option key={m} value={m}>
-                  {m === 'deepseek-reasoner' ? 'deepseek-reasoner（深度思考，更慢更细）' : 'deepseek-chat（默认，推荐）'}
-                </option>
-              ))}
-            </select>
-            <label>该节点提示词（已预填{cfg.prompt ? '本节点已保存的内容' : '系统默认模板'}，可直接修改）</label>
-            <textarea className="rev-content" rows={10} value={draftPrompt}
-              onChange={(e) => setDraftPrompt(e.target.value)} />
-            <div className="btn-row">
-              <button className="primary" onClick={() => savePrompt(draftPrompt, model)}>💾 保存提示词</button>
-              <button onClick={() => savePrompt('', 'deepseek-chat', true)}>↺ 恢复默认</button>
-              <button onClick={() => setDraftPrompt(defaultPrompt)}>⤵ 重新载入默认模板</button>
-            </div>
-            {dirty ? <div className="hint-warn">⚠ 提示词已修改但尚未保存，保存后点「执行改写」生效</div> : null}
-            {saved ? <div className="ok">✔ 已保存，点击「执行改写」即按新提示词生成</div> : null}
-          </>
-        ) : null}
-      </div>
-
+      <PromptEditor node={node} defaultKey={node.data.subtype} />
       <h4>输出预览</h4>
       <OutBox rev={rev} hint="执行后在此预览改写结果。" />
       {rev?.content ? (
@@ -398,6 +400,94 @@ function ExportPanel({ node }: { node: FlowNode }) {
   )
 }
 
+/* ---------------- AI 审稿 ---------------- */
+function AiReviewPanel({ node }: { node: FlowNode }) {
+  const edges = useStore((s) => s.edges)
+  const upstreamIds = edges.filter((e) => e.target === node.id).map((e) => e.source)
+  const [items, setItems] = useState<Revision[]>([])
+  const [busy, setBusy] = useState(false)
+  const [summary, setSummary] = useState('')
+  const cfg = (node.data.config || {}) as Record<string, any>
+  const [strict, setStrict] = useState(!!cfg.strict)
+  useEffect(() => { setStrict(!!cfg.strict) }, [node.id])
+
+  async function toggleStrict(v: boolean) {
+    setStrict(v)
+    const nextCfg: Record<string, unknown> = { ...cfg }
+    if (v) nextCfg.strict = true
+    else delete nextCfg.strict
+    try {
+      const updated = await api.updateNode(node.id, { config: nextCfg })
+      useStore.getState().syncNode(node.id, { config: (updated as any).config || nextCfg })
+      useStore.getState().toastMsg(v ? '已开启严格模式' : '已切换为标准模式')
+    } catch (e) { useStore.getState().toastMsg(errText(e)) }
+  }
+
+  const load = useCallback(async () => {
+    const list: Revision[] = []
+    for (const uid of upstreamIds) {
+      const r = await api.nodeRevision(uid)
+      if (r) list.push(r)
+    }
+    setItems(list)
+  }, [upstreamIds.join(',')])
+
+  useEffect(() => { void load() }, [load])
+
+  async function run() {
+    setBusy(true); setSummary('')
+    try {
+      const r: any = await api.executeNode(node.id, {})
+      if (r.status === 'waiting') {
+        setSummary('没有待审稿件：请先执行上游改写节点')
+        useStore.getState().toastMsg('没有待审稿件')
+      } else {
+        setSummary(`AI 审稿完成：共 ${r.count} 篇，通过 ${r.passed} 篇`)
+        useStore.getState().toastMsg(`AI 审稿完成：通过 ${r.passed}/${r.count}`)
+      }
+      useStore.getState().syncNode(node.id, { status: 'done' })
+      await load()
+      await useStore.getState().refreshCanvas()
+    } catch (e) {
+      useStore.getState().toastMsg(errText(e))
+      useStore.getState().syncNode(node.id, { status: 'failed', error: errText(e) })
+    }
+    setBusy(false)
+  }
+
+  const pending = items.filter((r) => ['rewritten', 'reviewed'].includes(r.status))
+  return (
+    <div className="panel-body">
+      <p className="tip">
+        AI 自动审稿：检查事实逻辑、错别字、可发布性。通过 → 稿件标记「已通过」；不通过 → 打回草稿并附审稿意见。
+        <b> 无需人工确认。</b>
+      </p>
+      <button className="primary wide" onClick={run} disabled={busy}>
+        {busy ? '🤖 审稿中…' : '🤖 开始 AI 审稿'}
+      </button>
+      <label className="check-row strict-row">
+        <input type="checkbox" checked={strict} onChange={(e) => toggleStrict(e.target.checked)} />
+        <span>严格模式（发现问题即打回，适合重要稿件）<br />
+          <span className="dim">默认标准模式：只拦下事实矛盾/敏感违规/严重语病等实质问题</span></span>
+      </label>
+      {summary ? <div className="ok">{summary}</div> : null}
+      <h4>上游稿件（{items.length} 篇，待审 {pending.length} 篇）</h4>
+      {items.length === 0 ? <div className="empty">上游暂无稿件，请先执行改写节点。</div> : null}
+      {items.map((r) => (
+        <div className="rev-card" key={r.id}>
+          <div className="rev-card-head">
+            <b>{FORMATS[r.format_type] || r.format_type}</b>
+            <span className={`pill st-${r.status}`}>{STATUS_TEXT[r.status] || r.status}</span>
+          </div>
+          <div className="rev-card-title">{r.title || '（无标题）'} · {r.content?.length || 0} 字</div>
+          {r.review_comment ? <div className="comment">{r.review_comment}</div> : null}
+        </div>
+      ))}
+      <PromptEditor node={node} defaultKey="ai_review" />
+    </div>
+  )
+}
+
 export default function ConfigPanel() {
   const selected = useStore((s) => s.selected)
   const nodes = useStore((s) => s.nodes)
@@ -413,6 +503,7 @@ export default function ConfigPanel() {
       ) : node.data.kind === 'draft_input' ? <DraftPanel node={node} />
         : node.data.kind === 'rewriter' || node.data.kind === 'transformer' ? <AiPanel node={node} />
         : node.data.kind === 'reviewer' ? <ReviewPanel node={node} />
+        : node.data.kind === 'ai_reviewer' ? <AiReviewPanel node={node} />
         : <ExportPanel node={node} />}
     </aside>
   )

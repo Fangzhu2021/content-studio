@@ -1,4 +1,6 @@
-"""DeepSeek AI 改写层：真实 API（OpenAI 兼容协议）+ 无 Key 时的模拟模式"""
+"""DeepSeek AI 层：改写 + 审稿（OpenAI 兼容协议）；无 Key 时模拟模式"""
+import json
+
 import httpx
 
 from .config import get_settings
@@ -92,3 +94,80 @@ def _mock_rewrite(format_type: str, content: str, title: str) -> str:
     # wechat / 兜底
     return (f"【{label} · 模拟模式】\n# {title}\n\n{body}\n\n"
             f"---\n（模拟模式：请在 backend/.env 配置 DEEPSEEK_API_KEY 后获得真实 AI 改写）")
+
+# ---------------- AI 审稿 ----------------
+REVIEW_PROMPT = (
+    "你是一名务实的新闻审稿编辑，目标是放行可以发布的稿件、只拦下真正有问题的稿件。\n"
+    "审阅要点：1) 有无与标题/正文自身明显矛盾或事实错误；2) 有无敏感、违规、夸大失实、主观臆断的表述；"
+    "3) 有无影响理解的严重错别字或语病；4) 结构是否完整（有标题/导语/正文即可）。\n"
+    "评分标准：90-100 可直接发布；70-89 有小瑕疵但可发布；50-69 有明显问题建议修改；50 以下存在严重问题。\n"
+    "重要：不要因为细节不够充分（如未写明年份、未列全参与人员、篇幅长短）而打回；"
+    "只有当存在上述 1)~4) 类的实质问题时才判 reject。\n"
+    '严格只输出一个 JSON 对象，不要任何多余文字，格式：'
+    '{"verdict": "pass" 或 "reject", "score": 0-100 的整数, '
+    '"comment": "不超过 60 字的审稿意见；若 reject 请指出具体问题"}'
+)
+PROMPTS["ai_review"] = REVIEW_PROMPT
+FORMAT_LABELS["ai_review"] = "AI 审稿"
+
+
+async def ai_review(title: str, content: str,
+                    custom_prompt: str | None = None,
+                    model: str | None = None,
+                    strict: bool = False) -> tuple[bool, str, str]:
+    """AI 审稿：返回 (是否通过, 审稿意见, 模型名)。无 Key 时模拟通过。"""
+    s = get_settings()
+    if not s.deepseek_api_key:
+        return True, "【模拟模式】未配置 DeepSeek Key，默认通过。", "mock(未配置Key)"
+    prompt = (custom_prompt or "").strip() or REVIEW_PROMPT
+    use_model = (model or "").strip() or DEFAULT_MODEL
+    if use_model not in AVAILABLE_MODELS:
+        use_model = DEFAULT_MODEL
+    payload = {
+        "model": use_model,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"标题：{title or '（无）'}\n\n稿件正文：\n{content}"},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 1000,
+    }
+    headers = {"Authorization": f"Bearer {s.deepseek_api_key}"}
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(s.deepseek_base_url.rstrip("/") + "/chat/completions", json=payload, headers=headers)
+        resp.raise_for_status()
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
+
+    data = None
+    try:
+        start, end = raw.find("{"), raw.rfind("}")
+        if start >= 0 and end > start:
+            data = json.loads(raw[start:end + 1])
+    except Exception:
+        data = None
+
+    if not isinstance(data, dict):
+        return True, f"（AI 返回格式异常，已默认通过，建议人工抽查）{raw[:80]}", use_model
+
+    verdict = str(data.get("verdict", "")).strip().lower()
+    try:
+        score = int(data.get("score", 100))
+    except Exception:
+        score = 100
+    comment = str(data.get("comment", "")).strip()
+
+    reject_words = ("reject", "rejected", "打回", "fail", "failed")
+    pass_words = ("pass", "passed", "通过", "approve", "approved")
+    is_reject = verdict in reject_words
+    is_pass = verdict in pass_words
+
+    if strict:
+        # 严格模式：模型判打回或评分偏低即打回
+        passed = (not is_reject) and score >= 80
+    else:
+        # 默认宽松：只有模型明确判 reject 且存在严重问题（评分 < 50）才打回，避免误伤可发布稿件
+        passed = not (is_reject and score < 50)
+        if is_pass and score >= 50:
+            passed = True
+    tag = "严格" if strict else "标准"
+    return passed, f"{comment}（评分 {score}·{tag}）", use_model

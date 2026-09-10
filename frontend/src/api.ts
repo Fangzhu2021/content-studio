@@ -52,8 +52,8 @@ export const api = {
     const { data } = await http.get('/projects')
     return data as { id: string; name: string; created_at?: string | null }[]
   },
-  async createProject(name: string, template: boolean) {
-    const { data } = await http.post('/projects', { name, template })
+  async createProject(name: string, template: boolean, aiReview = false) {
+    const { data } = await http.post('/projects', { name, template, ai_review: aiReview })
     return data as { id: string; name: string }
   },
   async getProject(id: string) {

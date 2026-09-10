@@ -137,3 +137,11 @@ textarea.small { font-size: 13px; }
 .prompt-box select { margin: 6px 0; }
 
 .hint-warn { color: #b45309; background: #fef3c7; border-radius: 8px; padding: 6px 9px; font-size: 12px; margin-top: 8px; }
+
+.csnode.k-ai_reviewer { border-color: #0891b2; }
+.ai-tag { font-size: 11px; color: #0891b2; }
+
+.strict-row { flex-direction: row !important; align-items: flex-start; gap: 8px; font-size: 12px !important;
+  color: #334155 !important; background: #f8fafc; border-radius: 8px; padding: 8px 10px; margin: 10px 0; }
+.strict-row input { width: auto; margin-top: 2px; }
+.strict-row .dim { color: #94a3b8; font-size: 11px; }

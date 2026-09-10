@@ -40,7 +40,7 @@ interface StoreState {
   register(username: string, password: string): Promise<void>
   logout(): void
   loadProjects(): Promise<void>
-  createProject(name: string, template: boolean): Promise<string | null>
+  createProject(name: string, template: boolean, aiReview?: boolean): Promise<string | null>
   openProject(id: string): Promise<void>
   closeProject(): void
   refreshCanvas(): Promise<void>
@@ -97,8 +97,8 @@ export const useStore = create<StoreState>((set, get) => {
       set({ token: null, user: null, projects: [], currentId: null, nodes: [], edges: [], selected: null, ws: null })
     },
     async loadProjects() { set({ projects: await api.listProjects() }) },
-    async createProject(name, template) {
-      const p = await api.createProject(name, template)
+    async createProject(name, template, aiReview = false) {
+      const p = await api.createProject(name, template, aiReview)
       await get().loadProjects()
       await get().openProject(p.id)
       return p.id

@@ -47,12 +47,13 @@ function Login() {
 function CreateModal({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('')
   const [tmpl, setTmpl] = useState(true)
+  const [aiReview, setAiReview] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   async function create() {
     setBusy(true)
     try {
-      await useStore.getState().createProject(name.trim(), tmpl)
+      await useStore.getState().createProject(name.trim(), tmpl, aiReview)
       onDone()
     } catch (e) { setErr(errText(e)) }
     setBusy(false)
@@ -63,7 +64,10 @@ function CreateModal({ onDone }: { onDone: () => void }) {
         <h3>新建项目</h3>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="项目名称，如：防汛演练报道" autoFocus />
         <label className="check-row"><input type="checkbox" checked={tmpl} onChange={(e) => setTmpl(e.target.checked)} />
-          <span>使用标准工作流模板（草稿 → TV/报刊 → 审定 → 公众号/微博/抖音 → 成稿）</span></label>
+          <span>使用标准工作流模板（草稿 → TV/报刊 → 审稿 → 公众号/微博/抖音 → 成稿）</span></label>
+        <label className="check-row"><input type="checkbox" checked={tmpl && aiReview} disabled={!tmpl}
+          onChange={(e) => setAiReview(e.target.checked)} />
+          <span><b>使用 AI 审稿</b>（自动判定通过/打回并给出审稿意见，无需人工确认）</span></label>
         {err ? <div className="login-err">{err}</div> : null}
         <div className="btn-row right">
           <button onClick={onDone}>取消</button>
@@ -93,7 +97,7 @@ function Palette() {
               title={currentId ? '拖到画布中放置' : '请先打开一个项目'}
             >
               <span>{it.icon}</span>
-              <span>{it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定' }[it.kind]}</span>
+              <span>{it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind]}</span>
             </div>
           ))}
         </div>

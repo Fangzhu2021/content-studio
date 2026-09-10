@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ai import AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, rewrite
+from ..ai import AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, ai_review, rewrite
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
@@ -135,7 +135,7 @@ async def get_canvas(pid: str, user: User = Depends(get_current_user), db: Async
 async def create_node(pid: str, body: NodeCreate, user: User = Depends(get_current_user),
                       db: AsyncSession = Depends(get_db)):
     await _owned_project(db, pid, user)
-    if body.type not in ("draft_input", "rewriter", "reviewer", "transformer", "exporter"):
+    if body.type not in ("draft_input", "rewriter", "reviewer", "ai_reviewer", "transformer", "exporter"):
         raise HTTPException(400, "未知节点类型")
     if body.type in REWRITEABLE and not body.subtype:
         raise HTTPException(400, "改写/转换节点需要 format_type（tv_script/newspaper/wechat/...）")
@@ -316,6 +316,29 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn) -> dict
             # 无 action：人工节点，返回待审数量
             await set_status(db, node, "done")
             return {"node_id": node.id, "status": "waiting", "pending": len(pending), "action": None}
+
+        if node.type == "ai_reviewer":
+            pending = [r for r in await upstream_revisions(db, node) if r.status in ("rewritten", "reviewed")]
+            if not pending:
+                await set_status(db, node, "done")
+                return {"node_id": node.id, "status": "waiting", "pending": 0,
+                        "message": "没有待审稿件（上游需先执行改写）"}
+            cfg = node.config or {}
+            reviews, passed_cnt = [], 0
+            for r in pending:
+                ok, comment, model = await ai_review(r.title or "", r.content or "",
+                                                     custom_prompt=cfg.get("prompt"), model=cfg.get("model"),
+                                                     strict=bool(cfg.get("strict")))
+                r.status = "approved" if ok else "draft"
+                r.review_comment = f"[AI审稿·{model}] {comment}"
+                if ok:
+                    passed_cnt += 1
+                reviews.append({"revision_id": r.id, "format_type": r.format_type,
+                                "passed": ok, "comment": comment, "model": model})
+            await db.commit()
+            await set_status(db, node, "approved" if passed_cnt == len(pending) else "done")
+            return {"node_id": node.id, "status": "approved" if passed_cnt == len(pending) else "done",
+                    "count": len(pending), "passed": passed_cnt, "reviews": reviews}
 
         if node.type == "exporter":
             candidates = await upstream_revisions(db, node)

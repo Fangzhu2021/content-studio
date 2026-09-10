@@ -1,7 +1,7 @@
 export interface User { id: string; username: string }
 export interface ProjectItem { id: string; name: string; created_at?: string | null }
 export interface Pos { x: number; y: number }
-export type NodeType = 'draft_input' | 'rewriter' | 'reviewer' | 'transformer' | 'exporter'
+export type NodeType = 'draft_input' | 'rewriter' | 'reviewer' | 'ai_reviewer' | 'transformer' | 'exporter'
 export interface CanvasNode {
   id: string
   type: NodeType
@@ -44,6 +44,7 @@ export const TYPE_META: Record<NodeType, { label: string; color: string; icon: s
   draft_input: { label: '草稿输入', color: '#64748b', icon: '📝', desc: '录入原始稿件' },
   rewriter: { label: 'AI 改写', color: '#6366f1', icon: '✍️', desc: '草稿 → TV/报刊稿' },
   reviewer: { label: '人工审定', color: '#d97706', icon: '✅', desc: '批注/通过/打回' },
+  ai_reviewer: { label: 'AI 审稿', color: '#0891b2', icon: '🤖', desc: '自动审稿（通过/打回）' },
   transformer: { label: '新媒体转换', color: '#0ea5e9', icon: '🔄', desc: '多平台风格改写' },
   exporter: { label: '成稿导出', color: '#16a34a', icon: '📤', desc: '复制/下载成稿' },
 }

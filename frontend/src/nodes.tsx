@@ -50,7 +50,12 @@ export const PALETTE: { group: string; items: PaletteItem[] }[] = [
       { kind: 'rewriter', subtype: 'newspaper', icon: '📰' },
     ],
   },
-  { group: '人工审定', items: [{ kind: 'reviewer', subtype: '', icon: '✅' }] },
+  {
+    group: '审稿', items: [
+      { kind: 'reviewer', subtype: '', icon: '✅' },
+      { kind: 'ai_reviewer', subtype: '', icon: '🤖' },
+    ],
+  },
   {
     group: '新媒体转换', items: [
       { kind: 'transformer', subtype: 'wechat', icon: '💬' },

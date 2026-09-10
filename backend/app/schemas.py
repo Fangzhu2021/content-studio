@@ -29,6 +29,7 @@ class TokenOut(BaseModel):
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     template: bool = False
+    ai_review: bool = False    # True: 模板中的「人工审定」替换为「AI 审稿」
 
 
 class ProjectUpdate(BaseModel):

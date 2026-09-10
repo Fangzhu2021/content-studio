@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
+from ..ai import FORMAT_LABELS  # noqa: F401  预留
 from ..schemas import ProjectCreate, ProjectUpdate
 
 router = APIRouter()
@@ -50,9 +51,12 @@ _TEMPLATE_EDGES = [
 ]
 
 
-async def build_template(db: AsyncSession, project: Project) -> tuple[list[CanvasNode], list[CanvasEdge]]:
+async def build_template(db: AsyncSession, project: Project,
+                         ai_review: bool = False) -> tuple[list[CanvasNode], list[CanvasEdge]]:
     nodes: list[CanvasNode] = []
     for ntype, subtype, label, x, y, cfg in _TEMPLATE:
+        if ai_review and ntype == "reviewer":
+            ntype, label = "ai_reviewer", "AI 审稿"
         nodes.append(CanvasNode(project_id=project.id, type=ntype, subtype=subtype,
                                 label=label, position_x=x, position_y=y, config=cfg))
     db.add_all(nodes)
@@ -82,9 +86,9 @@ async def create_project(body: ProjectCreate, user: User = Depends(get_current_u
     db.add(project)
     await db.flush()
     if body.template:
-        await build_template(db, project)
+        await build_template(db, project, ai_review=body.ai_review)
     await db.commit()
-    return {"id": project.id, "name": project.name, "template": body.template}
+    return {"id": project.id, "name": project.name, "template": body.template, "ai_review": body.ai_review}
 
 
 @router.get("/projects/{pid}")
