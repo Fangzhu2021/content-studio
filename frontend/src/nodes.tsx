@@ -70,6 +70,8 @@ export const PALETTE: { group: string; items: PaletteItem[] }[] = [
       { kind: 'exporter', subtype: 'wechat', icon: '📤' },
       { kind: 'exporter', subtype: 'weibo', icon: '📤' },
       { kind: 'exporter', subtype: 'douyin', icon: '📤' },
+      { kind: 'exporter', subtype: 'xiaohongshu', icon: '📤' },
+      { kind: 'exporter', subtype: 'toutiao', icon: '📤' },
     ],
   },
 ]

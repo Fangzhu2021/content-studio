@@ -97,7 +97,9 @@ function Palette() {
               title={currentId ? '拖到画布中放置' : '请先打开一个项目'}
             >
               <span>{it.icon}</span>
-              <span>{it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind]}</span>
+              <span>{it.kind === 'exporter'
+                ? `成稿 · ${FORMATS[it.subtype]}`
+                : it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind]}</span>
             </div>
           ))}
         </div>
