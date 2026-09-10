@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Canvas from './Canvas'
 import ConfigPanel from './Panels'
 import { api } from './api'
@@ -25,8 +25,8 @@ function Login() {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        <div className="login-logo">✒️ 内容工坊</div>
-        <div className="login-sub">Content Studio · 在线无限画布稿件改写系统</div>
+        <div className="login-logo">✒️ 智能编辑系统</div>
+        <div className="login-sub">在线无限画布稿件改写系统</div>
         <div className="tabs">
           <button className={mode === 'login' ? 'on' : ''} onClick={() => setMode('login')}>登录</button>
           <button className={mode === 'register' ? 'on' : ''} onClick={() => setMode('register')}>注册</button>
@@ -97,9 +97,7 @@ function Palette() {
               title={currentId ? '拖到画布中放置' : '请先打开一个项目'}
             >
               <span>{it.icon}</span>
-              <span>{it.kind === 'exporter'
-                ? `成稿 · ${FORMATS[it.subtype]}`
-                : it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind]}</span>
+              <span>{it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind]}</span>
             </div>
           ))}
         </div>
@@ -113,12 +111,46 @@ function Palette() {
   )
 }
 
+const PANEL_MIN = 260
+const PANEL_MAX = 780
+const PANEL_DEFAULT = 360
+
 function Workspace() {
   const user = useStore((s) => s.user)
   const projects = useStore((s) => s.projects)
   const currentId = useStore((s) => s.currentId)
   const toast = useStore((s) => s.toast)
   const [showCreate, setShowCreate] = useState(false)
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('cs_panel_width') || 0)
+    return saved >= PANEL_MIN && saved <= PANEL_MAX ? saved : PANEL_DEFAULT
+  })
+  const widthRef = useRef(panelWidth)
+  useEffect(() => { widthRef.current = panelWidth }, [panelWidth])
+
+  function startResize(e: React.MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = widthRef.current
+    document.body.classList.add('resizing')
+    function onMove(ev: MouseEvent) {
+      const next = Math.min(PANEL_MAX, Math.max(PANEL_MIN, startW - (ev.clientX - startX)))
+      setPanelWidth(next)
+    }
+    function onUp() {
+      document.body.classList.remove('resizing')
+      localStorage.setItem('cs_panel_width', String(Math.round(widthRef.current)))
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  function resetWidth() {
+    setPanelWidth(PANEL_DEFAULT)
+    localStorage.setItem('cs_panel_width', String(PANEL_DEFAULT))
+  }
 
   async function removeCurrent() {
     if (!currentId) return
@@ -131,7 +163,7 @@ function Workspace() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">✒️ 内容工坊 <span className="brand-en">Content Studio</span></div>
+        <div className="brand">✒️ 智能编辑系统</div>
         <div className="project-ctl">
           <select value={currentId || ''} onChange={(e) => { const v = e.target.value; if (v) void useStore.getState().openProject(v) }}>
             <option value="" disabled>— 选择项目 —</option>
@@ -153,7 +185,11 @@ function Workspace() {
             </div>
           )}
         </main>
-        <ConfigPanel />
+        <div className="splitter" onMouseDown={startResize} onDoubleClick={resetWidth}
+          title="拖动调整宽度（双击恢复默认）" />
+        <div className="panel-wrap" style={{ width: panelWidth }}>
+          <ConfigPanel />
+        </div>
       </div>
       {showCreate ? <CreateModal onDone={() => setShowCreate(false)} /> : null}
       {toast ? <div className="toast">{toast}</div> : null}
