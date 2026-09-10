@@ -96,7 +96,31 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
   const [defaultPrompt, setDefaultPrompt] = useState('')
   const [models, setModels] = useState<string[]>(['deepseek-chat', 'deepseek-reasoner'])
   const [saved, setSaved] = useState(false)
+  const [myList, setMyList] = useState<{ id: string; key: string; name: string; content: string }[]>([])
+  const [minePick, setMinePick] = useState('')
   const initRef = useRef('')
+
+  async function loadMine() {
+    try { setMyList(await api.myPrompts()) } catch { /* 忽略 */ }
+  }
+  async function saveAsMine() {
+    const name = prompt('模板名称', `${FORMATS[defaultKey] || defaultKey} · 我的版本`)
+    if (!name) return
+    try {
+      await api.createMyPrompt(defaultKey, name, draft)
+      await loadMine()
+      useStore.getState().toastMsg('已保存到「我的模板」')
+    } catch (e) { useStore.getState().toastMsg(errText(e)) }
+  }
+  async function removeMine(id: string) {
+    if (!confirm('删除这个模板？')) return
+    try {
+      await api.deleteMyPrompt(id)
+      setMinePick('')
+      await loadMine()
+      useStore.getState().toastMsg('模板已删除')
+    } catch (e) { useStore.getState().toastMsg(errText(e)) }
+  }
 
   const cfg = (node.data.config || {}) as Record<string, any>
   const custom = !!(cfg.prompt && String(cfg.prompt).trim())
@@ -120,7 +144,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
     setModel(cfg.model ? String(cfg.model) : 'deepseek-chat')
   }, [defaultPrompt, node.id, defaultKey, cfg.prompt, cfg.model])
 
-  useEffect(() => { setSaved(false) }, [node.id])
+  useEffect(() => { setSaved(false); void loadMine() }, [node.id])
 
   const dirty = draft.trim() !== (custom ? String(cfg.prompt).trim() : (defaultPrompt || '').trim())
     || model !== effectiveModel
@@ -170,6 +194,19 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
             <button className="primary" onClick={() => save(draft, model)}>💾 保存提示词</button>
             <button onClick={() => save('', 'deepseek-chat', true)}>↺ 恢复默认</button>
             <button onClick={() => setDraft(defaultPrompt)}>⤵ 重新载入默认模板</button>
+          </div>
+          <label>我的模板（个人库，载入后可保存到本节点）</label>
+          <div className="btn-row">
+            <select className="mine-select" value={minePick} onChange={(e) => {
+              setMinePick(e.target.value)
+              const t = myList.find((x) => x.id === e.target.value)
+              if (t) setDraft(t.content)
+            }} style={{ flex: 1 }}>
+              <option value="">— 选择载入 —</option>
+              {myList.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <button onClick={saveAsMine}>＋ 另存为我的模板</button>
+            {minePick ? <button onClick={() => removeMine(minePick)}>🗑</button> : null}
           </div>
           {dirty ? <div className="hint-warn">⚠ 提示词已修改但尚未保存，保存后点执行生效</div> : null}
           {saved ? <div className="ok">✔ 已保存</div> : null}

@@ -135,3 +135,36 @@ class AppSetting(Base):
     __tablename__ = "app_settings"
     key = Column(String(50), primary_key=True)
     value = Column(JSONB, default=dict)
+
+
+class NodeTemplate(Base):
+    """节点库（数据化）：group/kind/subtype 决定节点形态，prompt 为该节点的默认提示词"""
+    __tablename__ = "node_templates"
+    id = Column(String(32), primary_key=True, default=new_id)
+    group = Column(String(30), default="")            # 输入/工具/AI 改写/审稿/新媒体转换/成稿导出
+    kind = Column(String(30), nullable=False)         # draft_input/rewriter/.../tool/exporter
+    subtype = Column(String(50), default="")
+    label = Column(String(120), default="")
+    icon = Column(String(16), default="")
+    color = Column(String(16), default="#64748b")
+    hint = Column(String(120), default="")
+    sort = Column(Integer, default=100)
+    default_config = Column(JSONB, default=dict)
+    prompt = Column(Text, default="")
+    scope = Column(String(10), default="global")      # global | user
+    owner_id = Column(String(32), nullable=True)
+    enabled = Column(Boolean, default=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PromptTemplate(Base):
+    """提示词模板：scope=global 由管理员维护，scope=user 为用户个人模板"""
+    __tablename__ = "prompt_templates"
+    id = Column(String(32), primary_key=True, default=new_id)
+    key = Column(String(50), nullable=False, index=True)   # tv_script/newspaper/wechat/.../ai_review/condense
+    name = Column(String(120), default="")
+    content = Column(Text, default="")
+    scope = Column(String(10), default="global")
+    owner_id = Column(String(32), nullable=True)
+    enabled = Column(Boolean, default=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

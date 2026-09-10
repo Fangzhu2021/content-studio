@@ -11,8 +11,9 @@ from .config import get_settings
 from .db import Base, async_session, engine
 from .migrate import run_migrations
 from .models import Project, User
-from .routers import admin, auth, invites, projects, workflows
+from .routers import admin, auth, invites, projects, templates_api, workflows
 from .security import decode_token
+from .templates import seed_templates
 from .ws import manager
 
 settings = get_settings()
@@ -25,6 +26,7 @@ async def _bootstrap() -> None:
     await run_migrations(engine)
     async with async_session() as db:
         await ensure_defaults(db)
+        await seed_templates(db)
         names = [n.strip() for n in os.getenv("BOOTSTRAP_ADMIN_USERNAMES", "admin").split(",") if n.strip()]
         for name in names:
             user = (await db.execute(select(User).where(User.username == name))).scalar_one_or_none()
@@ -53,6 +55,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(invites.router, prefix="/api", tags=["invites"])
 app.include_router(admin.router, prefix="/api", tags=["admin"])
+app.include_router(templates_api.router, prefix="/api", tags=["templates"])
 app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(workflows.router, prefix="/api", tags=["workflow"])
 

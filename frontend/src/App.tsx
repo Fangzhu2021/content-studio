@@ -4,7 +4,7 @@ import ConfigPanel from './Panels'
 import AdminApp from './Admin'
 import { api } from './api'
 import { errText, useStore } from './store'
-import { PALETTE } from './nodes'
+import { BUILTIN_GROUPS, groupsFromApi, type PaletteGroupView } from './nodes'
 import { TYPE_META } from './types'
 import { FORMATS } from './types'
 
@@ -138,10 +138,19 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 function Palette() {
   const select = useStore((s) => s.select)
   const currentId = useStore((s) => s.currentId)
+  const [groups, setGroups] = useState<PaletteGroupView[]>(BUILTIN_GROUPS)
+  useEffect(() => {
+    void (async () => {
+      try {
+        const d = await api.getTemplates()
+        if (d.nodes?.length) setGroups(groupsFromApi(d.nodes))
+      } catch { /* 接口不可用时保留内置节点库 */ }
+    })()
+  }, [])
   return (
     <aside className="palette">
       <div className="palette-title">节点库 <span className="dim">（拖到画布）</span></div>
-      {PALETTE.map((g) => (
+      {groups.map((g) => (
         <div key={g.group}>
           <div className="palette-group">
             <i className="gdot" style={{ background: g.color }} />
@@ -159,7 +168,7 @@ function Palette() {
               title={currentId ? '拖到画布中放置' : '请先打开一个项目'}
             >
               <span className="pi-ico">{it.icon}</span>
-              <span className="pi-name">{it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind]}</span>
+              <span className="pi-name">{it.label || (it.subtype ? FORMATS[it.subtype] : { draft_input: '草稿输入', reviewer: '人工审定', ai_reviewer: 'AI 审稿' }[it.kind])}</span>
               {it.kind === 'exporter' ? <span className="pi-badge">终稿</span> : null}
             </div>
           ))}

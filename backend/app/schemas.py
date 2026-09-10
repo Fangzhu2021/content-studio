@@ -109,3 +109,46 @@ class AdminSettingsIn(BaseModel):
     global_monthly_budget_yuan: Optional[float] = None
     max_concurrency_global: Optional[int] = None
     max_concurrency_user: Optional[int] = None
+
+
+class NodeTemplateIn(BaseModel):
+    group: str = ""
+    kind: str
+    subtype: str = ""
+    label: str = ""
+    icon: str = ""
+    color: str = "#64748b"
+    hint: str = ""
+    sort: int = 100
+    default_config: dict = {}
+    prompt: str = ""
+
+
+class NodeTemplateUpdate(BaseModel):
+    group: Optional[str] = None
+    label: Optional[str] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
+    hint: Optional[str] = None
+    sort: Optional[int] = None
+    default_config: Optional[dict] = None
+    prompt: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class PromptTemplateIn(BaseModel):
+    key: str
+    name: str = ""
+    content: str
+
+
+class PromptTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    content: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class MyPromptIn(BaseModel):
+    key: str
+    name: str = ""
+    content: str

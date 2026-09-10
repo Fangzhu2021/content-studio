@@ -40,7 +40,7 @@ export function CSNode(props: any) {
 
 export const nodeTypes = { cs: CSNode }
 
-export interface PaletteItem { kind: string; subtype: string; icon: string }
+export interface PaletteItem { kind: string; subtype: string; icon: string; label?: string }
 export interface PaletteGroup { group: string; color: string; hint?: string; items: PaletteItem[] }
 
 export const PALETTE: PaletteGroup[] = [
@@ -90,3 +90,19 @@ export const PALETTE: PaletteGroup[] = [
 
 export function fmtOf(item: PaletteItem): string { return item.subtype ? ` (${FORMATS[item.subtype] || item.subtype})` : '' }
 export const KIND_ORDER_LEGEND = KIND_ORDER
+
+/* ---------- 节点库：数据库配置优先，内置定义兜底 ---------- */
+export interface PaletteGroupView { group: string; color: string; hint?: string; items: PaletteItem[] }
+
+export const BUILTIN_GROUPS: PaletteGroupView[] = PALETTE.map((g) => ({ group: g.group, color: g.color, hint: g.hint, items: g.items }))
+
+export function groupsFromApi(nodes: { group: string; kind: string; subtype: string; icon: string; color: string; hint?: string; sort?: number; label?: string }[]): PaletteGroupView[] {
+  const map = new Map<string, PaletteGroupView & { _sort: number }>()
+  for (const n of nodes) {
+    const g = map.get(n.group) || { group: n.group, color: n.color || '#64748b', hint: n.hint || '', items: [], _sort: n.sort ?? 100 }
+    if ((n.sort ?? 100) < g._sort) g._sort = n.sort ?? 100
+    g.items.push({ kind: n.kind, subtype: n.subtype, icon: n.icon || '🧩', label: n.label })
+    map.set(n.group, g)
+  }
+  return [...map.values()].sort((a, b) => a._sort - b._sort).map(({ _sort, ...rest }) => rest)
+}

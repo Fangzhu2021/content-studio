@@ -10,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..audit import get_setting, log as audit_log, set_setting
 from ..db import get_db
 from ..deps import require_role
-from ..models import AiUsage, AppSetting, AuditLog, CanvasEdge, CanvasNode, Project, Revision, User
+from ..models import (AiUsage, AppSetting, AuditLog, CanvasEdge, CanvasNode, NodeTemplate,
+                       Project, PromptTemplate, Revision, User)
 from ..schemas import (
     AdminPasswordReset, AdminProjectTransfer, AdminSettingsIn, AdminUserUpdate,
+    NodeTemplateIn, NodeTemplateUpdate, PromptTemplateIn, PromptTemplateUpdate,
 )
 from ..security import hash_password
 
@@ -291,3 +293,133 @@ async def update_settings(body: AdminSettingsIn, user: User = Depends(admin_only
             changed[key] = value
     await audit_log(db, action="admin_settings_update", user=user, detail=changed)
     return {"ok": True, "changed": changed}
+
+
+# ---------------- 节点库模板 ----------------
+ALLOWED_KINDS = ("draft_input", "rewriter", "reviewer", "ai_reviewer", "transformer", "tool", "exporter")
+
+
+def _node_tpl_out(t: NodeTemplate) -> dict:
+    return {
+        "id": t.id, "group": t.group, "kind": t.kind, "subtype": t.subtype, "label": t.label,
+        "icon": t.icon, "color": t.color, "hint": t.hint, "sort": t.sort, "enabled": bool(t.enabled),
+        "scope": t.scope, "owner_id": t.owner_id, "prompt": t.prompt or "",
+        "default_config": t.default_config or {},
+    }
+
+
+def _prompt_tpl_out(t: PromptTemplate) -> dict:
+    return {"id": t.id, "key": t.key, "name": t.name, "content": t.content, "scope": t.scope,
+            "owner_id": t.owner_id, "enabled": bool(t.enabled),
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None}
+
+
+@router.get("/admin/node-templates")
+async def admin_node_templates(user: User = Depends(admin_only), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(
+        select(NodeTemplate).order_by(NodeTemplate.group, NodeTemplate.sort, NodeTemplate.label)
+    )).scalars().all()
+    return [_node_tpl_out(t) for t in rows]
+
+
+@router.post("/admin/node-templates")
+async def admin_create_node_template(body: NodeTemplateIn, user: User = Depends(admin_only),
+                                     db: AsyncSession = Depends(get_db)):
+    if body.kind not in ALLOWED_KINDS:
+        raise HTTPException(400, f"节点类型不合法，可选：{'/'.join(ALLOWED_KINDS)}")
+    t = NodeTemplate(group=body.group or "自定义", kind=body.kind, subtype=body.subtype, label=body.label or body.kind,
+                     icon=body.icon or "🧩", color=body.color, hint=body.hint, sort=body.sort,
+                     default_config=body.default_config or {}, prompt=body.prompt, scope="global", enabled=True)
+    db.add(t)
+    await db.commit()
+    await db.refresh(t)
+    await audit_log(db, action="admin_node_template_create", user=user, target_type="node_template", target_id=t.id,
+                    detail={"kind": t.kind, "subtype": t.subtype, "label": t.label})
+    return _node_tpl_out(t)
+
+
+@router.patch("/admin/node-templates/{tid}")
+async def admin_update_node_template(tid: str, body: NodeTemplateUpdate, user: User = Depends(admin_only),
+                                     db: AsyncSession = Depends(get_db)):
+    t = await db.get(NodeTemplate, tid)
+    if not t:
+        raise HTTPException(404, "节点模板不存在")
+    changed = {}
+    for field in ("group", "label", "icon", "color", "hint", "sort", "default_config", "prompt", "enabled"):
+        value = getattr(body, field, None)
+        if value is not None:
+            setattr(t, field, value)
+            changed[field] = value if field != "prompt" else f"({len(value)} 字)"
+    await db.commit()
+    await db.refresh(t)   # 异步会话：refresh 后才能安全读取 updated_at 等列
+    await audit_log(db, action="admin_node_template_update", user=user, target_type="node_template", target_id=tid,
+                    detail=changed)
+    return _node_tpl_out(t)
+
+
+@router.delete("/admin/node-templates/{tid}")
+async def admin_delete_node_template(tid: str, user: User = Depends(admin_only), db: AsyncSession = Depends(get_db)):
+    t = await db.get(NodeTemplate, tid)
+    if not t:
+        raise HTTPException(404, "节点模板不存在")
+    label = t.label
+    await db.execute(delete(NodeTemplate).where(NodeTemplate.id == tid))
+    await db.commit()
+    await audit_log(db, action="admin_node_template_delete", user=user, target_type="node_template", target_id=tid,
+                    detail={"label": label})
+    return {"ok": True}
+
+
+# ---------------- 提示词模板 ----------------
+@router.get("/admin/prompt-templates")
+async def admin_prompt_templates(scope: str = "", user: User = Depends(admin_only),
+                                 db: AsyncSession = Depends(get_db)):
+    stmt = select(PromptTemplate).order_by(PromptTemplate.key, PromptTemplate.scope)
+    if scope:
+        stmt = stmt.where(PromptTemplate.scope == scope)
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_prompt_tpl_out(t) for t in rows]
+
+
+@router.post("/admin/prompt-templates")
+async def admin_create_prompt_template(body: PromptTemplateIn, user: User = Depends(admin_only),
+                                       db: AsyncSession = Depends(get_db)):
+    t = PromptTemplate(key=body.key, name=body.name or body.key, content=body.content, scope="global", enabled=True)
+    db.add(t)
+    await db.commit()
+    await db.refresh(t)
+    await audit_log(db, action="admin_prompt_template_create", user=user, target_type="prompt_template", target_id=t.id,
+                    detail={"key": t.key, "name": t.name})
+    return _prompt_tpl_out(t)
+
+
+@router.patch("/admin/prompt-templates/{tid}")
+async def admin_update_prompt_template(tid: str, body: PromptTemplateUpdate, user: User = Depends(admin_only),
+                                       db: AsyncSession = Depends(get_db)):
+    t = await db.get(PromptTemplate, tid)
+    if not t:
+        raise HTTPException(404, "提示词模板不存在")
+    changed = {}
+    for field in ("name", "content", "enabled"):
+        value = getattr(body, field, None)
+        if value is not None:
+            setattr(t, field, value)
+            changed[field] = value if field != "content" else f"({len(value)} 字)"
+    await db.commit()
+    await db.refresh(t)   # 同上：避免 MissingGreenlet
+    await audit_log(db, action="admin_prompt_template_update", user=user, target_type="prompt_template", target_id=tid,
+                    detail=changed)
+    return _prompt_tpl_out(t)
+
+
+@router.delete("/admin/prompt-templates/{tid}")
+async def admin_delete_prompt_template(tid: str, user: User = Depends(admin_only), db: AsyncSession = Depends(get_db)):
+    t = await db.get(PromptTemplate, tid)
+    if not t:
+        raise HTTPException(404, "提示词模板不存在")
+    if t.scope == "global":
+        raise HTTPException(400, "全站模板不可删除，请改为停用（enabled=false）以保留记录")
+    await db.execute(delete(PromptTemplate).where(PromptTemplate.id == tid))
+    await db.commit()
+    await audit_log(db, action="admin_prompt_template_delete", user=user, target_type="prompt_template", target_id=tid)
+    return {"ok": True}

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai import AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, TOOL_KINDS, ai_review, rewrite, tool_run
 from ..audit import log as audit_log
+from ..templates import effective_prompts, resolve_prompt
 from ..usage import ensure_quota, record_usage
 from ..db import get_db
 from ..deps import get_current_user
@@ -125,9 +126,12 @@ def _pick_revision(candidates: list[Revision], prefer_id: str | None) -> Revisio
 # ---------- 画布 ----------
 
 @router.get("/prompts")
-async def list_prompts(user: User = Depends(get_current_user)):
-    """返回各格式的默认提示词模板、格式名称与可选模型档位（供节点面板编辑/恢复默认）。"""
-    return {"prompts": PROMPTS, "labels": FORMAT_LABELS, "models": AVAILABLE_MODELS}
+async def list_prompts(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """返回各格式的**生效**提示词（全站模板覆盖内置）、格式名称与可选模型档位。
+
+    注意：必须走 effective_prompts，否则管理员改的全站提示词不会体现在节点面板里。
+    """
+    return {"prompts": await effective_prompts(db, user), "labels": FORMAT_LABELS, "models": AVAILABLE_MODELS}
 
 
 @router.get("/projects/{pid}/canvas")
@@ -296,7 +300,7 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                 node.subtype,
                 src.content,
                 src.title or "",
-                custom_prompt=cfg.get("prompt"),
+                custom_prompt=cfg.get("prompt") or await resolve_prompt(db, user, node.subtype),
                 model=cfg.get("model"),
                 style_hint=style_hint,
             )
@@ -327,7 +331,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                     ratio = float(cfg.get("ratio")) if cfg.get("ratio") else 0.35
                 except Exception:
                     ratio = 0.35
-            text, model, usage = await tool_run(kind, src.title or "", src.content, cfg.get("prompt"),
+            text, model, usage = await tool_run(kind, src.title or "", src.content,
+                                                cfg.get("prompt") or await resolve_prompt(db, user, kind),
                                                 cfg.get("model"), ratio=ratio)
             await record_usage(db, user=user, kind=kind, model=model, project_id=node.project_id,
                                node_id=node.id, **usage)
@@ -377,7 +382,7 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             last_model = ""
             for r in pending:
                 ok, comment, model, usage = await ai_review(r.title or "", r.content or "",
-                                                            custom_prompt=cfg.get("prompt"),
+                                                            custom_prompt=cfg.get("prompt") or await resolve_prompt(db, user, "ai_review"),
                                                             model=cfg.get("model"),
                                                             strict=bool(cfg.get("strict")))
                 last_model = model

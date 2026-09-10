@@ -2,15 +2,17 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { errText, useStore } from './store'
 
-type Tab = 'overview' | 'users' | 'projects' | 'usage' | 'audit' | 'settings'
+type Tab = 'overview' | 'users' | 'projects' | 'usage' | 'audit' | 'templates' | 'settings'
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'overview', label: '📊 概览' },
-  { key: 'users', label: '👥 用户管理' },
-  { key: 'projects', label: '📁 项目管理' },
-  { key: 'usage', label: '💰 用量看板' },
-  { key: 'audit', label: '📜 审计日志' },
-  { key: 'settings', label: '⚙️ 系统设置' },
+type TabMeta = { key: Tab; label: string; desc: string; badge?: (ov: any, users: any[], projects: any[]) => string | number }
+const TABS: TabMeta[] = [
+  { key: 'overview', label: '📊 概览', desc: '系统总体情况与本月消耗' },
+  { key: 'users', label: '👥 用户管理', desc: '角色、配额、密码与邀请码', badge: (_o, u) => (u?.length ?? 0) },
+  { key: 'projects', label: '📁 项目管理', desc: '全部项目、归属与清理', badge: (_o, _u, p) => (p?.length ?? 0) },
+  { key: 'usage', label: '💰 用量看板', desc: 'AI 调用趋势与成本排行' },
+  { key: 'audit', label: '📜 审计日志', desc: '关键操作留痕查询' },
+  { key: 'templates', label: '🧩 节点与提示词', desc: '维护节点库与全站提示词（改完全站生效）' },
+  { key: 'settings', label: '⚙️ 系统设置', desc: '注册、配额与并发策略' },
 ]
 
 function fmtTime(s?: string | null) {
@@ -19,6 +21,8 @@ function fmtTime(s?: string | null) {
 }
 
 export default function AdminApp() {
+  const me = useStore((s) => s.user)
+  const userName = () => me?.username || '-'
   const toastMsg = useStore((s) => s.toastMsg)
   const toast = useStore((s) => s.toast)
   const logout = useStore((s) => s.logout)
@@ -32,6 +36,10 @@ export default function AdminApp() {
   const [usageUsers, setUsageUsers] = useState<any[]>([])
   const [audit, setAudit] = useState<any>({ total: 0, items: [] })
   const [settings, setSettings] = useState<any>({})
+  const [nodeTpls, setNodeTpls] = useState<any[]>([])
+  const [promptTpls, setPromptTpls] = useState<any[]>([])
+  const [editNode, setEditNode] = useState<any>(null)
+  const [editPrompt, setEditPrompt] = useState<any>(null)
   const [q, setQ] = useState('')
   const [auditQ, setAuditQ] = useState({ action: '', username: '' })
   const [busy, setBusy] = useState(false)
@@ -48,6 +56,10 @@ export default function AdminApp() {
         setDaily(d.daily || []); setUsageUsers(u.users || [])
       }
       if (tab === 'audit') setAudit(await api.adminAudit({ ...auditQ, limit: 150 }))
+      if (tab === 'templates') {
+        setNodeTpls(await api.adminNodeTemplates())
+        setPromptTpls(await api.adminPromptTemplates())
+      }
       if (tab === 'settings') setSettings(await api.adminSettings())
     } catch (e: any) {
       if (e?.response?.status === 403) setDenied(true)
@@ -107,13 +119,30 @@ export default function AdminApp() {
         <button onClick={logout}>退出登录</button>
       </header>
 
-      <nav className="admin-tabs">
-        {TABS.map((t) => (
-          <button key={t.key} className={tab === t.key ? 'on' : ''} onClick={() => { setTab(t.key); setQ('') }}>{t.label}</button>
-        ))}
-      </nav>
+      <div className="admin-main">
+        <aside className="admin-nav">
+          <div className="admin-nav-title">功能区</div>
+          {TABS.map((t) => (
+            <button key={t.key} className={tab === t.key ? 'on' : ''} onClick={() => { setTab(t.key); setQ('') }}>
+              <span className="nav-label">{t.label}</span>
+              {t.badge ? <span className="nav-badge">{t.badge(ov, users, projects)}</span> : null}
+            </button>
+          ))}
+          <div className="admin-nav-foot">
+            <div className="dim">当前登录</div>
+            <div>{userName()}</div>
+          </div>
+        </aside>
 
-      <main className="admin-body">
+        <main className="admin-body">
+          <div className="admin-body-head">
+            <div>
+              <h2>{TABS.find((t) => t.key === tab)?.label}</h2>
+              <div className="dim">{TABS.find((t) => t.key === tab)?.desc}</div>
+            </div>
+            <div className="spacer" />
+            <span className="dim">{busy ? '加载中…' : '已同步'}</span>
+          </div>
         {tab === 'overview' && ov ? (
           <>
             <div className="cards">
@@ -270,6 +299,138 @@ export default function AdminApp() {
           </>
         ) : null}
 
+        {tab === 'templates' ? (
+          <>
+            <div className="admin-toolbar">
+              <b>节点库（{nodeTpls.length}）</b>
+              <div className="spacer" />
+              <button onClick={async () => {
+                const group = prompt('分组名称，如：新媒体转换', '自定义') || '自定义'
+                const kind = prompt('节点类型（draft_input/rewriter/reviewer/ai_reviewer/transformer/tool/exporter）', 'transformer') || ''
+                if (!kind) return
+                const subtype = prompt('格式代码（如 wechat / newspaper，可留空）', '') || ''
+                const label = prompt('节点显示名称', '新节点') || '新节点'
+                try {
+                  await api.adminCreateNodeTemplate({ group, kind, subtype, label, icon: '🧩', color: '#64748b' })
+                  toastMsg('节点模板已创建')
+                  await load()
+                } catch (e) { toastMsg(errText(e)) }
+              }}>＋ 新增节点</button>
+            </div>
+            <table className="tbl">
+              <thead><tr><th>分组</th><th>节点</th><th>图标</th><th>颜色</th><th>排序</th><th>提示词</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                {nodeTpls.map((t) => (
+                  <tr key={t.id}>
+                    <td>{t.group}</td>
+                    <td><b>{t.label}</b><div className="dim">{t.kind}{t.subtype ? ':' + t.subtype : ''}</div></td>
+                    <td style={{ fontSize: 18 }}>{t.icon}</td>
+                    <td><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 99, background: t.color }} /> {t.color}</td>
+                    <td>{t.sort}</td>
+                    <td>{t.prompt ? <span className="ok">{t.prompt.length} 字</span> : <span className="dim">未设置</span>}</td>
+                    <td>{t.enabled ? <span className="ok">启用</span> : <span className="danger">已停用</span>}</td>
+                    <td>
+                      <button onClick={() => setEditNode({ ...t })}>编辑</button>
+                      <button onClick={async () => {
+                        try { await api.adminUpdateNodeTemplate(t.id, { enabled: !t.enabled }); toastMsg('已更新'); await load() } catch (e) { toastMsg(errText(e)) }
+                      }}>{t.enabled ? '停用' : '启用'}</button>
+                      <button className="danger" onClick={async () => {
+                        if (!confirm(`删除节点模板「${t.label}」？`)) return
+                        try { await api.adminDeleteNodeTemplate(t.id); toastMsg('已删除'); await load() } catch (e) { toastMsg(errText(e)) }
+                      }}>删除</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {editNode ? (
+              <div className="settings-form" style={{ marginTop: 14 }}>
+                <h4>编辑节点：{editNode.kind}{editNode.subtype ? ':' + editNode.subtype : ''}</h4>
+                <label>显示名称</label>
+                <input value={editNode.label} onChange={(e) => setEditNode({ ...editNode, label: e.target.value })} />
+                <div className="btn-row">
+                  <div style={{ flex: 1 }}>
+                    <label>图标</label>
+                    <input value={editNode.icon} onChange={(e) => setEditNode({ ...editNode, icon: e.target.value })} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label>颜色</label>
+                    <input value={editNode.color} onChange={(e) => setEditNode({ ...editNode, color: e.target.value })} />
+                  </div>
+                  <div style={{ width: 100 }}>
+                    <label>排序</label>
+                    <input type="number" value={editNode.sort} onChange={(e) => setEditNode({ ...editNode, sort: Number(e.target.value) })} />
+                  </div>
+                </div>
+                <label>该节点默认提示词（留空则用内置；改完全站生效）</label>
+                <textarea className="rev-content" rows={8} value={editNode.prompt || ''}
+                  onChange={(e) => setEditNode({ ...editNode, prompt: e.target.value })} />
+                <div className="btn-row right">
+                  <button onClick={() => setEditNode(null)}>取消</button>
+                  <button className="primary" onClick={async () => {
+                    try {
+                      await api.adminUpdateNodeTemplate(editNode.id, {
+                        label: editNode.label, icon: editNode.icon, color: editNode.color,
+                        sort: editNode.sort, prompt: editNode.prompt,
+                      })
+                      toastMsg('节点模板已保存')
+                      setEditNode(null)
+                      await load()
+                    } catch (e) { toastMsg(errText(e)) }
+                  }}>💾 保存</button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="admin-toolbar" style={{ marginTop: 22 }}>
+              <b>全站提示词模板（{promptTpls.length}）</b>
+              <div className="spacer" />
+              <span className="dim">修改后对所有用户的对应节点生效（节点自身保存过的提示词优先）</span>
+            </div>
+            <table className="tbl">
+              <thead><tr><th>标识</th><th>名称</th><th>字数</th><th>范围</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                {promptTpls.map((t) => (
+                  <tr key={t.id}>
+                    <td><code>{t.key}</code></td>
+                    <td>{t.name}</td>
+                    <td>{t.content.length}</td>
+                    <td>{t.scope === 'global' ? '全站' : '个人'}</td>
+                    <td>{t.enabled ? <span className="ok">启用</span> : <span className="danger">已停用</span>}</td>
+                    <td>
+                      <button onClick={() => setEditPrompt({ ...t })}>编辑</button>
+                      <button onClick={async () => {
+                        if (t.scope !== 'global') return
+                        try { await api.adminUpdatePromptTemplate(t.id, { enabled: !t.enabled }); toastMsg('已更新'); await load() } catch (e) { toastMsg(errText(e)) }
+                      }} disabled={t.scope !== 'global'}>{t.enabled ? '停用' : '启用'}</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {editPrompt ? (
+              <div className="settings-form" style={{ marginTop: 14 }}>
+                <h4>编辑提示词：{editPrompt.key}（{editPrompt.name}）</h4>
+                <textarea className="rev-content" rows={10} value={editPrompt.content}
+                  onChange={(e) => setEditPrompt({ ...editPrompt, content: e.target.value })} />
+                <div className="btn-row right">
+                  <button onClick={() => setEditPrompt(null)}>取消</button>
+                  <button className="primary" onClick={async () => {
+                    try {
+                      await api.adminUpdatePromptTemplate(editPrompt.id, { content: editPrompt.content })
+                      toastMsg('提示词已保存，全站生效')
+                      setEditPrompt(null)
+                      await load()
+                    } catch (e) { toastMsg(errText(e)) }
+                  }}>💾 保存并全站生效</button>
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
         {tab === 'settings' && settings ? (
           <div className="settings-form">
             <label className="check-row">
@@ -296,7 +457,8 @@ export default function AdminApp() {
             <p className="tip">修改配额后对下一次调用立即生效；预算仅用于统计提醒，不自动阻断。</p>
           </div>
         ) : null}
-      </main>
+        </main>
+      </div>
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
   )

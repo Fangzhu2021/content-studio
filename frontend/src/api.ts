@@ -91,6 +91,29 @@ export const api = {
     const { data } = await http.post(`/nodes/${nodeId}/content`, { title, content })
     return data as import('./types').Revision
   },
+  // ---------- 节点库 / 提示词模板 ----------
+  async getTemplates() {
+    const { data } = await http.get('/templates')
+    return data as {
+      nodes: { id: string; group: string; kind: string; subtype: string; label: string; icon: string; color: string; hint?: string; sort?: number; default_config?: Record<string, unknown> }[]
+      prompts: Record<string, string>
+    }
+  },
+  async myPrompts() {
+    const { data } = await http.get('/my/prompt-templates')
+    return data as { id: string; key: string; name: string; content: string }[]
+  },
+  async createMyPrompt(key: string, name: string, content: string) {
+    const { data } = await http.post('/my/prompt-templates', { key, name, content })
+    return data
+  },
+  async deleteMyPrompt(id: string) { await http.delete(`/my/prompt-templates/${id}`) },
+  async adminNodeTemplates() { const { data } = await http.get('/admin/node-templates'); return data },
+  async adminCreateNodeTemplate(body: Record<string, unknown>) { const { data } = await http.post('/admin/node-templates', body); return data },
+  async adminUpdateNodeTemplate(id: string, body: Record<string, unknown>) { const { data } = await http.patch(`/admin/node-templates/${id}`, body); return data },
+  async adminDeleteNodeTemplate(id: string) { await http.delete(`/admin/node-templates/${id}`) },
+  async adminPromptTemplates() { const { data } = await http.get('/admin/prompt-templates'); return data },
+  async adminUpdatePromptTemplate(id: string, body: Record<string, unknown>) { const { data } = await http.patch(`/admin/prompt-templates/${id}`, body); return data },
   // ---------- 管理后台 ----------
   async adminOverview() { const { data } = await http.get('/admin/overview'); return data },
   async adminUsers(q = '') { const { data } = await http.get('/admin/users', { params: { q } }); return data },
