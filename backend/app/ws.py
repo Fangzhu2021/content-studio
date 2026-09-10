@@ -6,8 +6,9 @@ class WSManager:
     def __init__(self):
         self._rooms: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, project_id: str, ws: WebSocket) -> None:
-        await ws.accept()
+    async def connect(self, project_id: str, ws: WebSocket, accept: bool = True) -> None:
+        if accept:
+            await ws.accept()
         self._rooms.setdefault(project_id, set()).add(ws)
 
     def disconnect(self, project_id: str, ws: WebSocket) -> None:

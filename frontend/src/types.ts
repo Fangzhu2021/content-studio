@@ -1,4 +1,4 @@
-export interface User { id: string; username: string }
+export interface User { id: string; username: string; role?: string }
 export interface ProjectItem { id: string; name: string; created_at?: string | null }
 export interface Pos { x: number; y: number }
 export type NodeType = 'draft_input' | 'rewriter' | 'reviewer' | 'ai_reviewer' | 'transformer' | 'tool' | 'exporter'

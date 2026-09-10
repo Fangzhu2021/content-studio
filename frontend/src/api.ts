@@ -40,9 +40,13 @@ function detail(e: unknown): string {
 
 export const api = {
   detail,
-  async register(username: string, password: string) {
-    const { data } = await http.post('/auth/register', { username, password })
-    return data as { token: string; user: { id: string; username: string } }
+  async register(username: string, password: string, inviteCode = '') {
+    const { data } = await http.post('/auth/register', { username, password, invite_code: inviteCode })
+    return data as { token: string; user: { id: string; username: string; role?: string } }
+  },
+  async registerMode() {
+    const { data } = await http.get('/auth/register-mode')
+    return data as { registration_open: boolean; invite_required: boolean; password_rule: string }
   },
   async login(username: string, password: string) {
     const { data } = await http.post('/auth/login', { username, password })

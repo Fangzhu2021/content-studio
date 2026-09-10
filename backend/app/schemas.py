@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 class RegisterIn(BaseModel):
     username: str = Field(min_length=2, max_length=50)
-    password: str = Field(min_length=6, max_length=100)
+    password: str = Field(min_length=8, max_length=100)
+    invite_code: str = ""          # 注册关闭时必填
 
 
 class LoginIn(BaseModel):
@@ -14,9 +15,21 @@ class LoginIn(BaseModel):
     password: str
 
 
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str = Field(min_length=8, max_length=100)
+
+
+class InviteCreate(BaseModel):
+    role: str = "editor"
+    expires_days: int = 7
+    note: str = ""
+
+
 class UserOut(BaseModel):
     id: str
     username: str
+    role: str = "editor"
 
     model_config = {"from_attributes": True}
 

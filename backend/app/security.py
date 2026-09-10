@@ -28,16 +28,17 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-def create_token(user_id: str) -> str:
+def create_token(user_id: str, ver: int = 1) -> str:
+    """ver = users.token_version，可据此强制下线"""
     s = get_settings()
     payload = {
         "sub": user_id,
+        "ver": int(ver or 1),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=s.access_token_expire_minutes),
     }
     return jwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
 
 
-def decode_token(token: str) -> str:
+def decode_token(token: str) -> dict:
     s = get_settings()
-    payload = jwt.decode(token, s.jwt_secret, algorithms=[s.jwt_algorithm])
-    return payload["sub"]
+    return jwt.decode(token, s.jwt_secret, algorithms=[s.jwt_algorithm])

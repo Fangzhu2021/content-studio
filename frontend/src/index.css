@@ -177,3 +177,5 @@ textarea.small { font-size: 13px; }
 .panel-head .ph-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-head .del-btn { flex: 0 0 auto; font-size: 12px; padding: 3px 9px; border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
 .panel-head .del-btn:hover { background: #dc2626; color: #fff; border-color: #dc2626; }
+
+.role-badge { font-size: 11px; background: #4f46e5; color: #fff; border-radius: 99px; padding: 1px 8px; margin-left: 4px; }

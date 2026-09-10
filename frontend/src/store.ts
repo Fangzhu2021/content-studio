@@ -37,7 +37,7 @@ interface StoreState {
   select(id: string | null): void
   init(): Promise<void>
   login(username: string, password: string): Promise<void>
-  register(username: string, password: string): Promise<void>
+  register(username: string, password: string, inviteCode?: string): Promise<void>
   logout(): void
   loadProjects(): Promise<void>
   createProject(name: string, template: boolean, aiReview?: boolean): Promise<string | null>
@@ -98,7 +98,7 @@ export const useStore = create<StoreState>((set, get) => {
       } catch { /* 401 交给拦截器 */ }
     },
     async login(username, password) { const r = await api.login(username, password); setAuth(r.token, r.user); set({ token: r.token, user: r.user }); await get().loadProjects() },
-    async register(username, password) { const r = await api.register(username, password); setAuth(r.token, r.user); set({ token: r.token, user: r.user }); await get().loadProjects() },
+    async register(username, password, inviteCode = '') { const r = await api.register(username, password, inviteCode); setAuth(r.token, r.user); set({ token: r.token, user: r.user }); await get().loadProjects() },
     logout() {
       clearAuth()
       localStorage.removeItem('cs_last_project')

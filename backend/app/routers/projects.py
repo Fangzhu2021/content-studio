@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..audit import log as audit_log
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
@@ -88,6 +89,8 @@ async def create_project(body: ProjectCreate, user: User = Depends(get_current_u
     if body.template:
         await build_template(db, project, ai_review=body.ai_review)
     await db.commit()
+    await audit_log(db, action="project_create", user=user, target_type="project", target_id=project.id,
+                    detail={"name": body.name, "template": body.template, "ai_review": body.ai_review})
     return {"id": project.id, "name": project.name, "template": body.template, "ai_review": body.ai_review}
 
 
@@ -116,10 +119,13 @@ async def update_project(pid: str, body: ProjectUpdate, user: User = Depends(get
 
 @router.delete("/projects/{pid}")
 async def delete_project(pid: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    await _get_owned_project(db, pid, user)
+    project = await _get_owned_project(db, pid, user)
+    name = project.name
     await db.execute(delete(Revision).where(Revision.project_id == pid))
     await db.execute(delete(CanvasEdge).where(CanvasEdge.project_id == pid))
     await db.execute(delete(CanvasNode).where(CanvasNode.project_id == pid))
     await db.execute(delete(Project).where(Project.id == pid))
     await db.commit()
+    await audit_log(db, action="project_delete", user=user, target_type="project", target_id=pid,
+                    detail={"name": name})
     return {"ok": True}

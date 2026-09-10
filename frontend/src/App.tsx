@@ -13,13 +13,22 @@ function Login() {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [u, setU] = useState('')
   const [p, setP] = useState('')
+  const [invite, setInvite] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [regMode, setRegMode] = useState<{ invite_required: boolean; password_rule: string } | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      try { setRegMode(await api.registerMode()) } catch { /* 忽略 */ }
+    })()
+  }, [])
+
   async function submit() {
     setBusy(true); setErr('')
     try {
       if (mode === 'login') await useStore.getState().login(u, p)
-      else await useStore.getState().register(u, p)
+      else await useStore.getState().register(u, p, invite.trim())
     } catch (e) { setErr(errText(e)) }
     setBusy(false)
   }
@@ -33,13 +42,22 @@ function Login() {
           <button className={mode === 'register' ? 'on' : ''} onClick={() => setMode('register')}>注册</button>
         </div>
         <input value={u} onChange={(e) => setU(e.target.value)} placeholder="用户名（≥2 字符）" autoFocus />
-        <input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="密码（≥6 位）"
+        <input type="password" value={p} onChange={(e) => setP(e.target.value)}
+          placeholder={mode === 'register' ? '密码（≥8 位，含字母和数字）' : '密码'}
           onKeyDown={(e) => { if (e.key === 'Enter') void submit() }} />
+        {mode === 'register' && (regMode ? regMode.invite_required : true) ? (
+          <input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="邀请码（向管理员索取）"
+            onKeyDown={(e) => { if (e.key === 'Enter') void submit() }} />
+        ) : null}
         {err ? <div className="login-err">{err}</div> : null}
         <button className="primary wide" disabled={busy || !u || !p} onClick={submit}>
           {busy ? '…' : mode === 'login' ? '登 录' : '注册并登录'}
         </button>
-        <div className="login-hint">部署于 YOUR_SERVER_IP · DeepSeek AI 可配置</div>
+        <div className="login-hint">
+          {mode === 'register' && regMode && regMode.invite_required
+            ? '内部系统：注册需管理员发放的邀请码'
+            : '内部部署 · DeepSeek AI 驱动'}
+        </div>
       </div>
     </div>
   )
@@ -180,7 +198,13 @@ function Workspace() {
           {currentId ? <button className="danger" onClick={removeCurrent}>删除</button> : null}
         </div>
         <div className="spacer" />
-        {user ? <div className="user-chip">👤 {user.username} <button onClick={() => useStore.getState().logout()}>退出</button></div> : null}
+        {user ? (
+          <div className="user-chip">
+            👤 {user.username}
+            {user.role === 'admin' ? <span className="role-badge">管理员</span> : null}
+            <button onClick={() => useStore.getState().logout()}>退出</button>
+          </div>
+        ) : null}
       </header>
       <div className="workspace">
         <Palette />
