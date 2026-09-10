@@ -11,7 +11,7 @@ from .config import get_settings
 from .db import Base, async_session, engine
 from .migrate import run_migrations
 from .models import Project, User
-from .routers import auth, invites, projects, workflows
+from .routers import admin, auth, invites, projects, workflows
 from .security import decode_token
 from .ws import manager
 
@@ -52,6 +52,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(invites.router, prefix="/api", tags=["invites"])
+app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(workflows.router, prefix="/api", tags=["workflow"])
 

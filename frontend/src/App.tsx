@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Canvas from './Canvas'
 import ConfigPanel from './Panels'
+import AdminApp from './Admin'
 import { api } from './api'
 import { errText, useStore } from './store'
 import { PALETTE } from './nodes'
@@ -202,6 +203,7 @@ function Workspace() {
           <div className="user-chip">
             👤 {user.username}
             {user.role === 'admin' ? <span className="role-badge">管理员</span> : null}
+            {user.role === 'admin' ? <a className="admin-entry" href="/admin">管理后台</a> : null}
             <button onClick={() => useStore.getState().logout()}>退出</button>
           </div>
         ) : null}
@@ -238,5 +240,8 @@ export default function App() {
     window.addEventListener('cs:logout', h)
     return () => window.removeEventListener('cs:logout', h)
   }, [logout])
+  if (location.pathname.startsWith('/admin')) {
+    return token ? <AdminApp /> : <Login />
+  }
   return token ? <Workspace /> : <Login />
 }

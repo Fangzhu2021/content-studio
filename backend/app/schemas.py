@@ -87,3 +87,25 @@ class ExecuteIn(BaseModel):
 class ReviewIn(BaseModel):
     status: str                          # approved / draft(打回)
     comment: str = ""
+
+
+class AdminUserUpdate(BaseModel):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    monthly_call_limit: Optional[int] = None
+
+
+class AdminPasswordReset(BaseModel):
+    new_password: str = Field(min_length=8, max_length=100)
+
+
+class AdminProjectTransfer(BaseModel):
+    owner_username: str
+
+
+class AdminSettingsIn(BaseModel):
+    registration_open: Optional[bool] = None
+    default_monthly_call_limit: Optional[int] = None
+    global_monthly_budget_yuan: Optional[float] = None
+    max_concurrency_global: Optional[int] = None
+    max_concurrency_user: Optional[int] = None

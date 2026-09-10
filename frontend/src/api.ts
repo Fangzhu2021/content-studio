@@ -87,6 +87,37 @@ export const api = {
     const { data } = await http.post(`/nodes/${nodeId}/content`, { title, content })
     return data as import('./types').Revision
   },
+  // ---------- 管理后台 ----------
+  async adminOverview() { const { data } = await http.get('/admin/overview'); return data },
+  async adminUsers(q = '') { const { data } = await http.get('/admin/users', { params: { q } }); return data },
+  async adminUpdateUser(id: string, body: Record<string, unknown>) {
+    const { data } = await http.patch(`/admin/users/${id}`, body); return data
+  },
+  async adminResetPassword(id: string, newPassword: string) {
+    const { data } = await http.post(`/admin/users/${id}/reset-password`, { new_password: newPassword }); return data
+  },
+  async adminProjects(q = '') { const { data } = await http.get('/admin/projects', { params: { q } }); return data },
+  async adminDeleteProject(id: string) { const { data } = await http.delete(`/admin/projects/${id}`); return data },
+  async adminTransferProject(id: string, owner: string) {
+    const { data } = await http.post(`/admin/projects/${id}/transfer`, { owner_username: owner }); return data
+  },
+  async adminUsageDaily(days = 14) { const { data } = await http.get('/admin/usage/daily', { params: { days } }); return data },
+  async adminUsageUsers(days = 30) { const { data } = await http.get('/admin/usage/users', { params: { days } }); return data },
+  async adminAudit(params: Record<string, unknown>) { const { data } = await http.get('/admin/audit', { params }); return data },
+  async adminSettings() { const { data } = await http.get('/admin/settings'); return data },
+  async adminSaveSettings(body: Record<string, unknown>) {
+    const { data } = await http.put('/admin/settings', body); return data
+  },
+  async adminDownloadUsageCsv(days = 30) {
+    const token = getToken()
+    const r = await fetch(`/api/admin/usage/export.csv?days=${days}`, { headers: { Authorization: `Bearer ${token}` } })
+    const blob = await r.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `ai-usage-${days}d.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  },
   async getPrompts() {
     const { data } = await http.get('/prompts')
     return data as { prompts: Record<string, string>; labels: Record<string, string>; models: string[] }
