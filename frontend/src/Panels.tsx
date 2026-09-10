@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { errText, useStore, type FlowNode } from './store'
 import { FORMATS, STATUS_TEXT, TYPE_META } from './types'
@@ -98,10 +98,12 @@ function AiPanel({ node }: { node: FlowNode }) {
   const [defaultPrompt, setDefaultPrompt] = useState('')
   const [models, setModels] = useState<string[]>(['deepseek-chat', 'deepseek-reasoner'])
   const [saved, setSaved] = useState(false)
+  const initRef = useRef('')
 
   const cfg = (node.data.config || {}) as Record<string, any>
   const custom = !!(cfg.prompt && String(cfg.prompt).trim())
   const isTransform = node.data.kind === 'transformer'
+  const effectiveModel = cfg.model ? String(cfg.model) : 'deepseek-chat'
 
   useEffect(() => {
     void (async () => {
@@ -113,26 +115,42 @@ function AiPanel({ node }: { node: FlowNode }) {
     })()
   }, [node.data.subtype])
 
+  // 切换节点/默认模板加载完成后：用「已保存的自定义提示词」或「系统默认模板」预填编辑器
+  // 让用户直接在默认版本上修改，而不是面对空白框
   useEffect(() => {
-    setDraftPrompt(cfg.prompt ? String(cfg.prompt) : '')
+    const key = `${node.id}|${node.data.subtype}|${defaultPrompt ? 1 : 0}`
+    if (!defaultPrompt || initRef.current === key) return
+    initRef.current = key
+    setDraftPrompt(cfg.prompt ? String(cfg.prompt) : defaultPrompt)
     setModel(cfg.model ? String(cfg.model) : 'deepseek-chat')
-    // 注意：不可在此重置 saved —— 保存后 syncNode 会触发本 effect，导致「已保存」提示被立即清掉
-  }, [node.id, cfg.prompt, cfg.model])
+  }, [defaultPrompt, node.id, node.data.subtype, cfg.prompt, cfg.model])
 
   useEffect(() => { setSaved(false) }, [node.id])
 
-  async function savePrompt(nextPrompt: string, nextModel: string) {
+  const dirty = draftPrompt.trim() !== (custom ? String(cfg.prompt).trim() : (defaultPrompt || '').trim())
+    || model !== effectiveModel
+
+  async function savePrompt(nextPrompt: string, nextModel: string, resetToDefault = false) {
     const nextCfg: Record<string, unknown> = { ...cfg }
-    if (nextPrompt.trim()) nextCfg.prompt = nextPrompt
-    else delete nextCfg.prompt
+    const trimmed = nextPrompt.trim()
+    const sameAsDefault = !trimmed || trimmed === (defaultPrompt || '').trim()
+    if (sameAsDefault) delete nextCfg.prompt
+    else nextCfg.prompt = nextPrompt
     if (nextModel && nextModel !== 'deepseek-chat') nextCfg.model = nextModel
     else delete nextCfg.model
     try {
       const updated = await api.updateNode(node.id, { config: nextCfg })
-      useStore.getState().syncNode(node.id, { config: (updated as any).config || nextCfg })
-      useStore.getState().toastMsg(nextPrompt.trim() ? '提示词已保存到该节点' : '已恢复默认提示词')
+      const savedCfg = (updated as any).config || nextCfg
+      useStore.getState().syncNode(node.id, { config: savedCfg })
+      if (resetToDefault || sameAsDefault) {
+        setDraftPrompt(defaultPrompt)          // 保留默认文本，方便继续改
+        setModel(nextModel || 'deepseek-chat')
+      }
+      useStore.getState().toastMsg(sameAsDefault
+        ? '已恢复为系统默认提示词（编辑器保留默认文本）'
+        : '提示词已保存到该节点')
       setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
+      setTimeout(() => setSaved(false), 2600)
     } catch (e) { useStore.getState().toastMsg(errText(e)) }
   }
 
@@ -174,15 +192,15 @@ function AiPanel({ node }: { node: FlowNode }) {
                 </option>
               ))}
             </select>
-            <label>该节点提示词（留空 = 使用默认模板）</label>
-            <textarea className="rev-content" rows={8} value={draftPrompt}
-              placeholder={defaultPrompt || '（默认模板加载中…）'}
+            <label>该节点提示词（已预填{cfg.prompt ? '本节点已保存的内容' : '系统默认模板'}，可直接修改）</label>
+            <textarea className="rev-content" rows={10} value={draftPrompt}
               onChange={(e) => setDraftPrompt(e.target.value)} />
             <div className="btn-row">
               <button className="primary" onClick={() => savePrompt(draftPrompt, model)}>💾 保存提示词</button>
-              <button onClick={() => { setDraftPrompt(''); setModel('deepseek-chat'); void savePrompt('', 'deepseek-chat') }}>↺ 恢复默认</button>
-              <button onClick={() => setDraftPrompt(defaultPrompt)}>⤵ 载入默认模板</button>
+              <button onClick={() => savePrompt('', 'deepseek-chat', true)}>↺ 恢复默认</button>
+              <button onClick={() => setDraftPrompt(defaultPrompt)}>⤵ 重新载入默认模板</button>
             </div>
+            {dirty ? <div className="hint-warn">⚠ 提示词已修改但尚未保存，保存后点「执行改写」生效</div> : null}
             {saved ? <div className="ok">✔ 已保存，点击「执行改写」即按新提示词生成</div> : null}
           </>
         ) : null}
