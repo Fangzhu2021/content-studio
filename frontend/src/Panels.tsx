@@ -181,20 +181,31 @@ function ExportPanel({ node }: { node: FlowNode }) {
   const upstreamIds = edges.filter((e) => e.target === node.id).map((e) => e.source)
   const [sources, setSources] = useState<Revision[]>([])
   const [pick, setPick] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState<Revision | null>(null)
   const [finalRev, setFinalRev] = useState<Revision | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  const load = useCallback(async () => {
+  const loadSources = useCallback(async () => {
     const list: Revision[] = []
     for (const uid of upstreamIds) {
       const r = await api.nodeRevision(uid)
       if (r) list.push(r)
     }
     setSources(list)
-    setPick('')
-    setFinalRev(null)
+    return list
   }, [upstreamIds.join(',')])
-  useEffect(() => { void load() }, [load])
+
+  // 仅在切换节点时重置状态（此前 bug：生成后刷新来源把成稿预览清空了）
+  useEffect(() => {
+    setPick('')
+    setPreview(null)
+    setFinalRev(null)
+    void loadSources().then((list) => {
+      if (list.length) { setPick(list[0].id); setPreview(list[0]) }
+    })
+  }, [node.id])
+
+  function choose(s: Revision) { setPick(s.id); setPreview(s) }
 
   async function run() {
     setBusy(true)
@@ -202,50 +213,77 @@ function ExportPanel({ node }: { node: FlowNode }) {
       const payload: Record<string, unknown> = {}
       if (pick) payload.revision_id = pick
       const r = await api.executeNode(node.id, payload)
-      useStore.getState().toastMsg('已生成最终成稿')
       useStore.getState().syncNode(node.id, { status: 'done' })
-      const revId = r.revision_id || pick
-      if (revId) {
-        // 导出目标即上游某篇 Revision；直接按其 ID 拉取最终内容
-        const s = sources.find((x) => x.id === revId)
-        if (s) setFinalRev({ ...s, status: 'finalized' })
+      const rid = r.revision_id || pick
+      if (rid) {
+        const rev = await api.getRevision(rid)
+        setFinalRev(rev)
+        setPreview(rev)
       }
-      await load()
+      await loadSources()
+      useStore.getState().toastMsg('已生成最终成稿，可复制/下载后到平台发布')
     } catch (e) { useStore.getState().toastMsg(errText(e)) }
     setBusy(false)
   }
 
-  function download() {
-    const content = finalRev?.content || ''
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
+  function download(rev: Revision) {
+    const blob = new Blob([rev.content || ''], { type: 'text/markdown;charset=utf-8' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `${finalRev?.title || '成稿'}.md`
+    a.download = `${rev.title || '成稿'}.md`
     a.click()
     URL.revokeObjectURL(a.href)
     useStore.getState().toastMsg('已下载 .md 文件')
   }
 
+  const chars = preview?.content ? preview.content.length : 0
+
   return (
     <div className="panel-body">
-      <p className="tip">把选定的平台稿标记为最终成稿；复制/下载后粘贴到对应平台后台发布（系统不做平台直推）。</p>
-      <h4>选择上游成稿来源</h4>
-      {sources.length === 0 ? <div className="empty">上游还没有成稿，请先执行新媒体转换节点。</div> : null}
+      <p className="tip">选择一篇上游平台稿生成最终成稿；复制/下载后到对应平台后台粘贴发布（系统不做平台直推）。</p>
+
+      <h4>1. 选择来源稿（点击即预览）</h4>
+      {sources.length === 0 ? (
+        <div className="empty">上游还没有成稿。\n请先执行「新媒体转换」节点（公众号/微博/抖音）。</div>
+      ) : null}
       {sources.map((s) => (
-        <label className="radio-row" key={s.id}>
-          <input type="radio" name="pick" checked={pick === s.id} onChange={() => setPick(s.id)} />
-          <span>{FORMATS[s.format_type] || s.format_type} {s.status === 'finalized' ? '（已成稿）' : ''} — {s.title || '（无标题）'}</span>
+        <label className={`radio-row${pick === s.id ? ' on' : ''}`} key={s.id}>
+          <input type="radio" name="pick" checked={pick === s.id} onChange={() => choose(s)} />
+          <span>
+            <b>{FORMATS[s.format_type] || s.format_type}</b>
+            <span className={`pill st-${s.status}`}>{STATUS_TEXT[s.status] || s.status}</span>
+            <span className="dim"> {s.title || '（无标题）'} · {s.content?.length || 0} 字</span>
+          </span>
         </label>
       ))}
-      <button className="primary" onClick={run} disabled={busy || sources.length === 0}>
-        {busy ? '⏳ 执行中…' : '📤 生成最终成稿'}
+      <button className="primary wide" onClick={run} disabled={busy || sources.length === 0}>
+        {busy ? '⏳ 生成中…' : '📤 生成最终成稿'}
       </button>
-      <h4>最终成稿</h4>
-      <OutBox rev={finalRev} hint="生成后在此预览，点击下方按钮复制/下载，再粘贴到平台发布。" />
-      {finalRev?.content ? (
-        <div className="btn-row">
-          <button onClick={() => copyText(finalRev.content)}>📋 复制全文</button>
-          <button onClick={download}>⬇ 下载 .md</button>
+
+      <h4>2. 成稿预览 {preview ? <span className="dim">（{chars} 字）</span> : null}</h4>
+      {preview ? (
+        <div className={`preview-box${finalRev ? ' is-final' : ''}`}>
+          <div className="meta-chips">
+            <span className={`chip st-${preview.status}`}>{preview.status === 'finalized' ? '已成稿' : (STATUS_TEXT[preview.status] || preview.status)}</span>
+            <span className="chip">{FORMATS[preview.format_type] || preview.format_type}</span>
+            {preview.model ? <span className="chip">{preview.model}</span> : null}
+            <span className="chip">{preview.content?.length || 0} 字</span>
+          </div>
+          <div className="rev-title">{preview.title || '（无标题）'}</div>
+          {preview.review_comment ? <div className="comment">审定意见：{preview.review_comment}</div> : null}
+          <textarea className="rev-content" readOnly value={preview.content || ''} spellCheck={false} />
+        </div>
+      ) : (
+        <div className="empty">选择来源稿后在此预览内容。</div>
+      )}
+
+      {finalRev ? (
+        <div className="final-box">
+          <div className="final-head">✅ 最终成稿已就绪 — 复制或下载后发布</div>
+          <div className="btn-row">
+            <button className="primary" onClick={() => copyText(finalRev.content || '')}>📋 复制全文</button>
+            <button onClick={() => download(finalRev)}>⬇ 下载 .md</button>
+          </div>
         </div>
       ) : null}
     </div>

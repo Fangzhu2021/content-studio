@@ -237,6 +237,16 @@ async def node_history(nid: str, user: User = Depends(get_current_user), db: Asy
     return [_rev_out(r) for r in rows.scalars()]
 
 
+@router.get("/revisions/{rid}")
+async def get_revision(rid: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """按 ID 获取任意 Revision（用于成稿预览/追溯）。"""
+    rev = await db.get(Revision, rid)
+    if not rev:
+        raise HTTPException(404, "稿件不存在")
+    await _owned_project(db, rev.project_id, user)
+    return _rev_out(rev)
+
+
 @router.post("/revisions/{rid}/status")
 async def review_revision(rid: str, body: ReviewIn, user: User = Depends(get_current_user),
                           db: AsyncSession = Depends(get_db)):

@@ -120,3 +120,12 @@ textarea.small { font-size: 13px; }
 .radio-row input { width: auto; margin: 0; }
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: #0f172a; color: #e2e8f0;
   padding: 10px 20px; border-radius: 99px; font-size: 13px; z-index: 99; box-shadow: 0 8px 24px rgba(0, 0, 0, .3); }
+
+/* ---------- 成稿导出面板 ---------- */
+.radio-row.on { background: #eef2ff; border-radius: 8px; }
+.radio-row span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.radio-row .dim { color: #94a3b8; font-size: 12px; }
+.preview-box { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; background: #fff; margin: 8px 0; }
+.preview-box.is-final { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, .08); }
+.final-box { border: 1px solid #16a34a; background: #f0fdf4; border-radius: 10px; padding: 10px; margin: 12px 0; }
+.final-head { color: #15803d; font-weight: 700; font-size: 13px; margin-bottom: 8px; }

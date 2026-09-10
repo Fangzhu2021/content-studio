@@ -83,6 +83,10 @@ export const api = {
     const { data } = await http.post(`/nodes/${nodeId}/content`, { title, content })
     return data as import('./types').Revision
   },
+  async getRevision(rid: string) {
+    const { data } = await http.get(`/revisions/${rid}`)
+    return data as import('./types').Revision
+  },
   async nodeRevision(nodeId: string) {
     const { data } = await http.get(`/nodes/${nodeId}/revision`)
     return data as import('./types').Revision | null
