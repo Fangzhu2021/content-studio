@@ -272,6 +272,13 @@ function ExportPanel({ node }: { node: FlowNode }) {
           <div className="rev-title">{preview.title || '（无标题）'}</div>
           {preview.review_comment ? <div className="comment">审定意见：{preview.review_comment}</div> : null}
           <textarea className="rev-content" readOnly value={preview.content || ''} spellCheck={false} />
+          {preview.content ? (
+            <div className="btn-row">
+              <button className="primary wide" onClick={() => copyText(preview.content || '')}>
+                📋 一键复制预览全文（{preview.content.length} 字）
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="empty">选择来源稿后在此预览内容。</div>
