@@ -114,16 +114,18 @@ async def update_user(uid: str, body: AdminUserUpdate, user: User = Depends(admi
         raise HTTPException(404, "用户不存在")
     if target.id == user.id and body.is_active is False:
         raise HTTPException(400, "不能禁用自己的账号")
+    # 用 model_fields_set 判断"显式传入"，这样显式传 null 才能把配额清空为「继承全局」
+    fields = body.model_fields_set
     changed = {}
-    if body.role is not None:
+    if "role" in fields and body.role is not None:
         if body.role not in ("admin", "editor", "reviewer", "viewer"):
             raise HTTPException(400, "角色不合法")
         changed["role"] = body.role
         target.role = body.role
-    if body.is_active is not None:
+    if "is_active" in fields and body.is_active is not None:
         changed["is_active"] = body.is_active
         target.is_active = body.is_active
-    if body.monthly_call_limit is not None:
+    if "monthly_call_limit" in fields:
         changed["monthly_call_limit"] = body.monthly_call_limit
         target.monthly_call_limit = body.monthly_call_limit
     if changed.get("role") is not None or changed.get("is_active") is not None:

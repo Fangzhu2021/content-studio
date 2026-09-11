@@ -1,5 +1,11 @@
-"""DeepSeek AI 层：改写 + 审稿（OpenAI 兼容协议）；无 Key 时模拟模式"""
+"""DeepSeek AI 层：改写 + 审稿（OpenAI 兼容协议）；无 Key 时模拟模式
+
+所有外部调用统一走 _post_chat：内置指数退避重试（429/5xx/网络与超时），
+并把错误翻译成用户可读的提示，避免节点"莫名失败"。
+"""
+import asyncio
 import json
+import random
 import time
 
 import httpx
@@ -335,25 +341,82 @@ def _usage_of(data: dict, elapsed_ms: int, prompt_chars: int, output_chars: int)
         "duration_ms": int(elapsed_ms),
         "prompt_chars": int(prompt_chars),
         "output_chars": int(output_chars),
+        "retries": 0,
     }
 
 
 def _zero_usage(prompt_chars: int, output_chars: int) -> dict:
     return {"prompt_tokens": 0, "completion_tokens": 0, "duration_ms": 0,
-            "prompt_chars": int(prompt_chars), "output_chars": int(output_chars)}
+            "prompt_chars": int(prompt_chars), "output_chars": int(output_chars), "retries": 0}
+
+
+RETRY_ATTEMPTS = 3          # 总尝试次数（1 次原始 + 2 次重试）
+RETRY_BASE_DELAY = 1.0      # 首次重试等待（秒），之后翻倍
+RETRY_MAX_DELAY = 8.0
+
+
+class AIError(RuntimeError):
+    """AI 调用失败（对外可读的提示）"""
+
+
+class _Retryable(Exception):
+    """可重试的失败（限流 / 5xx / 网络 / 超时）"""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _friendly_error(reason: str, attempts: int) -> str:
+    tail = f"（已重试 {attempts - 1} 次）" if attempts > 1 else ""
+    if "限流" in reason or "429" in reason:
+        return f"AI 服务限流{tail}，请稍后重试"
+    if "超时" in reason or "timeout" in reason.lower():
+        return f"AI 服务响应超时{tail}，请稍后重试"
+    if "网络" in reason:
+        return f"无法连接 AI 服务{tail}，请检查服务器外网与 .env 中的 DEEPSEEK_BASE_URL"
+    return f"AI 服务暂时不可用{tail}：{reason}"
 
 
 async def _post_chat(url: str, payload: dict, headers: dict) -> tuple[str, dict]:
-    """统一调用入口，返回 (文本, usage)"""
-    t0 = time.time()
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-    elapsed = int((time.time() - t0) * 1000)
-    text = data["choices"][0]["message"]["content"].strip()
-    pchars = sum(len(m.get("content", "")) for m in payload.get("messages", []))
-    return text, _usage_of(data, elapsed, pchars, len(text))
+    """统一调用入口：带指数退避重试，返回 (文本, usage)；失败抛 AIError"""
+    last: _Retryable | None = None
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            t0 = time.time()
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+            if resp.status_code == 429:
+                raise _Retryable(f"限流（HTTP 429）")
+            if resp.status_code >= 500:
+                raise _Retryable(f"HTTP {resp.status_code}")
+            if resp.status_code in (401, 403):
+                raise AIError("AI Key 无效或无权限，请检查后端 .env 中的 DEEPSEEK_API_KEY")
+            if resp.status_code >= 400:
+                raise AIError(f"AI 请求被拒绝（HTTP {resp.status_code}）：{resp.text[:120]}")
+            data = resp.json()
+            elapsed = int((time.time() - t0) * 1000)
+            text = data["choices"][0]["message"]["content"].strip()
+            pchars = sum(len(m.get("content", "")) for m in payload.get("messages", []))
+            usage = _usage_of(data, elapsed, pchars, len(text))
+            usage["retries"] = attempt - 1
+            return text, usage
+        except AIError:
+            raise
+        except _Retryable as exc:
+            last = exc
+        except httpx.TimeoutException:
+            last = _Retryable("请求超时")
+        except httpx.TransportError:
+            last = _Retryable("网络错误")
+        except Exception as exc:  # noqa: BLE001
+            last = _Retryable(f"{type(exc).__name__}: {exc}")
+
+        if attempt < RETRY_ATTEMPTS:
+            delay = min(RETRY_MAX_DELAY, RETRY_BASE_DELAY * (2 ** (attempt - 1))) + random.uniform(0, 0.4)
+            await asyncio.sleep(delay)
+
+    raise AIError(_friendly_error(last.reason if last else "未知错误", RETRY_ATTEMPTS))
 
 # ---------------- 成稿导出：排版处理（可粘贴进秀米/微信编辑器） ----------------
 EXPORT_PROMPTS = {

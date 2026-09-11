@@ -10,6 +10,7 @@ DEFAULT_SETTINGS: dict[str, dict] = {
     "global_monthly_budget_yuan": {"value": 300},          # 全局月度预算（仅看板提醒）
     "max_concurrency_global": {"value": 8},
     "max_concurrency_user": {"value": 2},
+    "max_queue_wait_seconds": {"value": 120},   # 排队等待上限，超过则快速失败
 }
 
 

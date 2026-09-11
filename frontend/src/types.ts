@@ -56,7 +56,7 @@ export const TYPE_META: Record<NodeType, { label: string; color: string; icon: s
 }
 
 export const STATUS_TEXT: Record<string, string> = {
-  idle: '待命', running: '执行中', done: '完成', failed: '失败', approved: '已通过', waiting: '待人工',
+  idle: '待命', running: '执行中', queued: '排队中', done: '完成', failed: '失败', approved: '已通过', waiting: '待人工',
 }
 
 export const FORMAT_OPTIONS: { subtype: string; label: string }[] = [

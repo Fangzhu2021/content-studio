@@ -7,6 +7,7 @@ from ..ai import (AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, TOOL_KINDS, ai_revie
                   tool_run, typeset)
 from ..pdf_tools import merge_blocks
 from ..audit import log as audit_log
+from ..concurrency import ai_slot
 from ..templates import effective_prompts, resolve_prompt
 from ..usage import ensure_quota, record_usage
 from ..db import get_db
@@ -107,6 +108,22 @@ async def upstream_revisions(db: AsyncSession, node: CanvasNode) -> list[Revisio
         upstream_ids.add(nid)
         stack.extend(reverse.get(nid, []))
     return newest_per_node(await collect(list(upstream_ids)))
+
+
+USAGE_KEYS = ("prompt_tokens", "completion_tokens", "duration_ms", "prompt_chars", "output_chars")
+
+
+def _usage_kwargs(usage: dict) -> dict:
+    """只取 record_usage 认识的字段（usage 里还带 retries 等展示用信息）"""
+    return {k: int(usage.get(k) or 0) for k in USAGE_KEYS}
+
+
+async def _queued_notice(node: CanvasNode, waited: float) -> None:
+    """排队超过 0.8 秒时，实时提示前端该节点正在排队"""
+    if waited > 0.8:
+        await manager.broadcast(node.project_id, {"type": "node_status", "node_id": node.id,
+                                                  "status": "queued", "error": "",
+                                                  "waited_ms": int(waited * 1000)})
 
 
 def _is_style(rev: Revision) -> bool:
@@ -307,23 +324,27 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             if not src or not (src.content or "").strip():
                 raise HTTPException(400, "缺少上游稿件内容，请先填写草稿并执行上游节点")
             cfg = node.config or {}
-            text, model, usage = await rewrite(
-                node.subtype,
-                src.content,
-                src.title or "",
-                custom_prompt=cfg.get("prompt") or await resolve_prompt(db, user, node.subtype),
-                model=cfg.get("model"),
-                style_hint=style_hint,
-            )
-            await record_usage(db, user=user, kind="rewrite" if node.type == "rewriter" else "transform",
-                               model=model, project_id=node.project_id, node_id=node.id, **usage)
+            async with ai_slot(db, user) as waited:
+                await _queued_notice(node, waited)
+                text, model, usage = await rewrite(
+                    node.subtype,
+                    src.content,
+                    src.title or "",
+                    custom_prompt=cfg.get("prompt") or await resolve_prompt(db, user, node.subtype),
+                    model=cfg.get("model"),
+                    style_hint=style_hint,
+                )
+                await record_usage(db, user=user, kind="rewrite" if node.type == "rewriter" else "transform",
+                                   model=model, project_id=node.project_id, node_id=node.id,
+                                   **_usage_kwargs(usage))
             rev = Revision(project_id=node.project_id, node_id=node.id, parent_revision_id=src.id,
                            title=src.title or "", content=text, format_type=node.subtype,
                            status="rewritten", model=model)
             db.add(rev)
             await db.commit()
             await set_status(db, node, "done")
-            return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model}
+            return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model,
+                    "retries": int(usage.get("retries") or 0), "queued_ms": int((waited or 0) * 1000)}
 
         if node.type == "tool":
             kind = (node.subtype or "condense").strip()
@@ -363,11 +384,13 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                     ratio = float(cfg.get("ratio")) if cfg.get("ratio") else 0.35
                 except Exception:
                     ratio = 0.35
-            text, model, usage = await tool_run(kind, src.title or "", src.content,
-                                                cfg.get("prompt") or await resolve_prompt(db, user, kind),
-                                                cfg.get("model"), ratio=ratio)
-            await record_usage(db, user=user, kind=kind, model=model, project_id=node.project_id,
-                               node_id=node.id, **usage)
+            async with ai_slot(db, user) as waited:
+                await _queued_notice(node, waited)
+                text, model, usage = await tool_run(kind, src.title or "", src.content,
+                                                    cfg.get("prompt") or await resolve_prompt(db, user, kind),
+                                                    cfg.get("model"), ratio=ratio)
+                await record_usage(db, user=user, kind=kind, model=model, project_id=node.project_id,
+                                   node_id=node.id, **_usage_kwargs(usage))
             rev = Revision(project_id=node.project_id, node_id=node.id, parent_revision_id=src.id,
                            title=src.title or "", content=text, format_type=kind,
                            status="rewritten", model=model)
@@ -375,7 +398,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             await db.commit()
             await set_status(db, node, "done")
             return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model,
-                    "kind": kind, "chars": len(text)}
+                    "kind": kind, "chars": len(text),
+                    "retries": int(usage.get("retries") or 0), "queued_ms": int((waited or 0) * 1000)}
 
         if node.type == "reviewer":
             pending = [r for r in await upstream_revisions(db, node)
@@ -412,14 +436,19 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             total = {"prompt_tokens": 0, "completion_tokens": 0, "duration_ms": 0,
                      "prompt_chars": 0, "output_chars": 0}
             last_model = ""
-            for r in pending:
-                ok, comment, model, usage = await ai_review(r.title or "", r.content or "",
-                                                            custom_prompt=cfg.get("prompt") or await resolve_prompt(db, user, "ai_review"),
-                                                            model=cfg.get("model"),
-                                                            strict=bool(cfg.get("strict")))
-                last_model = model
-                for k in total:
-                    total[k] += int(usage.get(k) or 0)
+            retries_total, queued_ms = 0, 0
+            async with ai_slot(db, user) as waited:
+                await _queued_notice(node, waited)
+                queued_ms = int(waited * 1000)
+                for r in pending:
+                    ok, comment, model, usage = await ai_review(r.title or "", r.content or "",
+                                                                custom_prompt=cfg.get("prompt") or await resolve_prompt(db, user, "ai_review"),
+                                                                model=cfg.get("model"),
+                                                                strict=bool(cfg.get("strict")))
+                    last_model = model
+                    retries_total += int(usage.get("retries") or 0)
+                    for k in total:
+                        total[k] += int(usage.get(k) or 0)
                 r.status = "approved" if ok else "draft"
                 r.review_comment = f"[AI审稿·{model}] {comment}"
                 if ok:
@@ -428,10 +457,11 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                                 "passed": ok, "comment": comment, "model": model})
             await db.commit()
             await record_usage(db, user=user, kind="ai_review", model=last_model,
-                               project_id=node.project_id, node_id=node.id, **total)
+                               project_id=node.project_id, node_id=node.id, **_usage_kwargs(total))
             await set_status(db, node, "approved" if passed_cnt == len(pending) else "done")
             return {"node_id": node.id, "status": "approved" if passed_cnt == len(pending) else "done",
-                    "count": len(pending), "passed": passed_cnt, "reviews": reviews}
+                    "count": len(pending), "passed": passed_cnt, "reviews": reviews,
+                    "retries": retries_total, "queued_ms": queued_ms}
 
         if node.type == "exporter":
             candidates = [r for r in await upstream_revisions(db, node) if not _is_style(r)]
@@ -453,10 +483,12 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                         "format_type": src.format_type, "typeset": False}
 
             await ensure_quota(db, user)
-            text, model, usage = await typeset(node.subtype, src.title or "", src.content,
-                                               custom_prompt=prompt, model=cfg.get("model"))
-            await record_usage(db, user=user, kind="export", model=model, project_id=node.project_id,
-                               node_id=node.id, **usage)
+            async with ai_slot(db, user) as waited:
+                await _queued_notice(node, waited)
+                text, model, usage = await typeset(node.subtype, src.title or "", src.content,
+                                                   custom_prompt=prompt, model=cfg.get("model"))
+                await record_usage(db, user=user, kind="export", model=model, project_id=node.project_id,
+                                   node_id=node.id, **_usage_kwargs(usage))
             rev = Revision(project_id=node.project_id, node_id=node.id, parent_revision_id=src.id,
                            title=src.title or "", content=text,
                            format_type=src.format_type or node.subtype,
@@ -469,13 +501,16 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             await set_status(db, node, "done")
             return {"node_id": node.id, "status": "done", "revision_id": rev.id,
                     "format_type": rev.format_type, "typeset": True, "model": model,
-                    "chars": len(text)}
+                    "chars": len(text), "retries": int(usage.get("retries") or 0),
+                    "queued_ms": int((waited or 0) * 1000)}
 
         # draft_input
         await set_status(db, node, "done")
         return {"node_id": node.id, "status": "done", "message": "草稿节点：请在上方配置面板编辑内容"}
-    except HTTPException:
-        await set_status(db, node, "failed", node.error or "")
+    except HTTPException as exc:
+        # 把可读原因（配额不足/缺上游/文件未上传等）写入节点并实时推送，前端才能显示真实原因
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        await set_status(db, node, "failed", detail)
         raise
     except Exception as exc:  # noqa: BLE001
         await set_status(db, node, "failed", str(exc))

@@ -95,6 +95,25 @@ function chips(rev: Revision | null) {
   )
 }
 
+/** 节点执行失败时的提示条 + 一键重试 */
+function FailBanner({ node, onRetry, busy }: { node: FlowNode; onRetry: () => void; busy: boolean }) {
+  if (node.data.status !== 'failed') return null
+  return (
+    <div className="fail-banner">
+      <div className="fail-text">⚠ 上次执行失败：{node.data.error || '未知错误'}</div>
+      <button className="primary" disabled={busy} onClick={onRetry}>↻ 重试执行</button>
+    </div>
+  )
+}
+
+/** 把重试/排队信息拼成提示后缀 */
+function execExtra(r: any) {
+  const parts: string[] = []
+  if (r?.retries) parts.push(`重试 ${r.retries} 次`)
+  if (r?.queued_ms > 800) parts.push(`排队 ${(r.queued_ms / 1000).toFixed(1)}s`)
+  return parts.length ? '（' + parts.join(' · ') + '）' : ''
+}
+
 function useRevision(nodeId?: string | null) {
   const [rev, setRev] = useState<Revision | null>(null)
   const reload = useCallback(async () => {
@@ -284,8 +303,8 @@ function AiPanel({ node }: { node: FlowNode }) {
   async function run() {
     setBusy(true)
     try {
-      const r = await api.executeNode(node.id, {})
-      useStore.getState().toastMsg(`执行完成（${r.model || ''}）`)
+      const r: any = await api.executeNode(node.id, {})
+      useStore.getState().toastMsg(`执行完成（${r.model || ''}）${execExtra(r)}`)
       useStore.getState().syncNode(node.id, { status: 'done' })
       await reload()
     } catch (e) {
@@ -303,6 +322,7 @@ function AiPanel({ node }: { node: FlowNode }) {
           : `把草稿改写为「${FORMATS[node.data.subtype]}」。上游：草稿输入或上一层输出。`}
       </p>
       <button className="primary wide" onClick={run} disabled={busy}>{busy ? '⏳ 执行中…' : '⚡ 执行改写'}</button>
+      <FailBanner node={node} onRetry={run} busy={busy} />
       <PromptEditor node={node} defaultKey={node.data.subtype} />
       <h4>输出预览</h4>
       <OutBox rev={rev} hint="执行后在此预览改写结果。" />
@@ -421,7 +441,7 @@ function ExportPanel({ node }: { node: FlowNode }) {
     try {
       const payload: Record<string, unknown> = {}
       if (pick) payload.revision_id = pick
-      const r = await api.executeNode(node.id, payload)
+      const r: any = await api.executeNode(node.id, payload)
       useStore.getState().syncNode(node.id, { status: 'done' })
       const rid = r.revision_id || pick
       if (rid) {
@@ -430,7 +450,7 @@ function ExportPanel({ node }: { node: FlowNode }) {
         setPreview(rev)
       }
       await loadSources()
-      useStore.getState().toastMsg('已生成最终成稿，可复制/下载后到平台发布')
+      useStore.getState().toastMsg('已生成最终成稿，可复制/下载后到平台发布' + execExtra(r))
     } catch (e) { useStore.getState().toastMsg(errText(e)) }
     setBusy(false)
   }
@@ -472,6 +492,7 @@ function ExportPanel({ node }: { node: FlowNode }) {
       <button className="primary wide" onClick={run} disabled={busy || sources.length === 0}>
         {busy ? '⏳ 排版中…' : '📤 排版并生成最终成稿'}
       </button>
+      <FailBanner node={node} onRetry={run} busy={busy} />
       <PromptEditor node={node} defaultKey={`export_${node.data.subtype || 'wechat'}`} />
 
       <h4>2. 成稿预览 {preview ? <span className="dim">（{chars} 字）</span> : null}</h4>
@@ -781,7 +802,7 @@ function ToolPanel({ node }: { node: FlowNode }) {
     setBusy(true)
     try {
       const r: any = await api.executeNode(node.id, {})
-      useStore.getState().toastMsg(`${ui.header.replace('预览', '')}已生成（${r.chars || 0} 字）`)
+      useStore.getState().toastMsg(`${ui.header.replace('预览', '')}已生成（${r.chars || 0} 字）${execExtra(r)}`)
       useStore.getState().syncNode(node.id, { status: 'done' })
       await reload()
     } catch (e) {
@@ -797,6 +818,7 @@ function ToolPanel({ node }: { node: FlowNode }) {
       <button className="primary wide" onClick={run} disabled={busy}>
         {busy ? '⏳ 处理中…' : ui.action}
       </button>
+      <FailBanner node={node} onRetry={run} busy={busy} />
       {isCondense ? (
         <>
           <label>目标篇幅</label>
