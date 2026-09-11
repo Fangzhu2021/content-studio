@@ -109,6 +109,7 @@ class AdminSettingsIn(BaseModel):
     global_monthly_budget_yuan: Optional[float] = None
     max_concurrency_global: Optional[int] = None
     max_concurrency_user: Optional[int] = None
+    max_queue_wait_seconds: Optional[int] = None
 
 
 class NodeTemplateIn(BaseModel):

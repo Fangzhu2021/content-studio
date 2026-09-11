@@ -280,7 +280,7 @@ async def audit_list(action: str = "", username: str = "", limit: int = 100, off
 
 # ---------------- 设置 ----------------
 SETTING_KEYS = ("registration_open", "default_monthly_call_limit", "global_monthly_budget_yuan",
-                "max_concurrency_global", "max_concurrency_user")
+                "max_concurrency_global", "max_concurrency_user", "max_queue_wait_seconds")
 
 
 @router.get("/admin/settings")

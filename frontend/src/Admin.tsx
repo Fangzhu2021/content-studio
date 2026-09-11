@@ -498,6 +498,9 @@ export default function AdminApp() {
               <input type="number" value={settings.max_concurrency_user ?? 2} style={{ maxWidth: 100 }}
                 onChange={(e) => setSettings({ ...settings, max_concurrency_user: Number(e.target.value) })} />
             </div>
+            <label>排队等待上限（秒，超过则提示服务繁忙）</label>
+            <input type="number" value={settings.max_queue_wait_seconds ?? 120} style={{ maxWidth: 140 }}
+              onChange={(e) => setSettings({ ...settings, max_queue_wait_seconds: Number(e.target.value) })} />
             <button className="primary wide" onClick={async () => {
               try { await api.adminSaveSettings(settings); toastMsg('设置已保存') } catch (e) { toastMsg(errText(e)) }
             }}>💾 保存设置</button>
