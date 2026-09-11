@@ -211,7 +211,26 @@ TOPIC_PROMPT = (
 PROMPTS["topic_plan"] = TOPIC_PROMPT
 FORMAT_LABELS["topic_plan"] = "新闻选题策划"
 
-TOOL_KINDS = ("condense", "style_prompt", "topic_plan")
+
+# ---------------- 工具节点：报道方案生成 ----------------
+REPORT_PROMPT = (
+    "你是一名融媒体中心报道策划负责人。请根据提供的素材（可能是选题清单、活动信息或初步材料），"
+    "输出一份【可直接执行的报道方案】，按以下结构（用【】与中文序号分层，纯文本，不要 Markdown 标记）：\n"
+    "【一、报道主题与定位】一句话主题、报道目的、目标受众、传播目标\n"
+    "【二、报道框架】按时间线分批次（预热期 / 活动期 / 收尾期），说明每批次的报道重点与节奏\n"
+    "【三、稿件清单】逐条列出拟发稿件：标题建议、核心内容要点（2~3 条）、体裁与篇幅、发布平台、建议发布时间\n"
+    "【四、采访提纲】列出采访对象（单位或身份），每个对象给 3~5 个具体问题；注明需提前预约或需协调的事项\n"
+    "【五、人员与分工】记者、摄像/摄影、编辑、审核、发布等角色分工建议\n"
+    "【六、物料与素材清单】需要的图片、视频、数据、图表、历史资料等\n"
+    "【七、风险与预案】核实要点、表述风险、舆情风险与应对、现场安全事项\n"
+    "【八、需要核实的信息】素材中未确认、需向主办方或相关单位核实的事项\n"
+    "要求：只能使用素材中已给出的事实，不得编造人名、数字与情节；语言简洁、可执行、可直接分派给记者。只输出方案本身。"
+)
+PROMPTS["report_plan"] = REPORT_PROMPT
+FORMAT_LABELS["report_plan"] = "报道方案"
+
+TOOL_KINDS = ("condense", "style_prompt", "topic_plan", "report_plan")
+
 
 
 
@@ -270,6 +289,12 @@ async def tool_run(kind: str, title: str, content: str,
 
 def _mock_tool(kind: str, title: str, content: str) -> str:
     body = (content or "").strip()
+    if kind == "report_plan":
+        return ("【一、报道主题与定位】围绕" + (title or "该素材") + "形成组合报道……\n"
+                "【二、报道框架】预热期 / 活动期 / 收尾期……\n"
+                "【三、稿件清单】……\n【四、采访提纲】……\n【五、人员与分工】……\n"
+                "【六、物料与素材清单】……\n【七、风险与预案】……\n【八、需要核实的信息】……\n"
+                "（模拟模式：配置 DeepSeek Key 后输出完整报道方案）")
     if kind == "topic_plan":
         return ("【选题一】" + (title or "素材主线") + "的现场直击\n"
                 "· 核心角度：以现场细节切入……\n"

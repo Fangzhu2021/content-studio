@@ -14,6 +14,7 @@ BUILTIN_NODES: list[dict] = [
     {"group": "工具", "hint": "（从草稿取稿）", "kind": "tool", "subtype": "condense", "label": "稿件精简", "icon": "✂️", "color": "#7c3aed", "sort": 20},
     {"group": "工具", "hint": "（从草稿取稿）", "kind": "tool", "subtype": "style_prompt", "label": "风格提取", "icon": "🎨", "color": "#7c3aed", "sort": 21},
     {"group": "工具", "hint": "（策划选题）", "kind": "tool", "subtype": "topic_plan", "label": "新闻选题策划", "icon": "💡", "color": "#7c3aed", "sort": 23},
+    {"group": "工具", "hint": "（组合成方案）", "kind": "tool", "subtype": "report_plan", "label": "报道方案生成", "icon": "📋", "color": "#7c3aed", "sort": 24},
     {"group": "工具", "hint": "（上传 PDF 提取）", "kind": "tool", "subtype": "pdf_extract", "label": "PDF 版面提取", "icon": "📄", "color": "#7c3aed", "sort": 22},
     {"group": "AI 改写", "hint": "（原稿 → TV/报刊稿）", "kind": "rewriter", "subtype": "tv_script", "label": "电视口播稿", "icon": "📺", "color": "#6366f1", "sort": 30},
     {"group": "AI 改写", "hint": "（原稿 → TV/报刊稿）", "kind": "rewriter", "subtype": "newspaper", "label": "报刊通稿", "icon": "📰", "color": "#6366f1", "sort": 31},

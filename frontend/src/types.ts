@@ -42,6 +42,7 @@ export const FORMATS: Record<string, string> = {
   style_prompt: '风格提取',
   pdf_extract: 'PDF 提取',
   topic_plan: '选题策划',
+  report_plan: '报道方案',
 }
 
 export const TYPE_META: Record<NodeType, { label: string; color: string; icon: string; desc: string }> = {

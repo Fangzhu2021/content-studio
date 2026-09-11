@@ -752,6 +752,11 @@ const TOOL_UI: Record<string, { tip: string; action: string; header: string; hin
     action: '💡 策划新闻选题', header: '选题策划方案预览',
     hint: '提示：把选定的选题复制到「草稿输入」节点，即可继续走改写/转换/审稿流程。',
   },
+  report_plan: {
+    tip: '把上游素材（通常是「新闻选题策划」的结果，也可以是草稿）组合成一份可执行的报道方案：报道主题与定位、报道框架、稿件清单、采访提纲、人员分工、物料清单、风险与预案、待核实信息。',
+    action: '📋 生成报道方案', header: '报道方案预览',
+    hint: '提示：方案里的稿件清单可拆成多个「草稿输入」节点分别改写；采访提纲可直接打印给记者使用。',
+  },
 }
 
 function ToolPanel({ node }: { node: FlowNode }) {
