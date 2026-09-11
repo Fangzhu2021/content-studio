@@ -152,3 +152,7 @@ class MyPromptIn(BaseModel):
     key: str
     name: str = ""
     content: str
+
+
+class PdfSelectIn(BaseModel):
+    indexes: list[int] = []

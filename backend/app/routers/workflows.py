@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai import (AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, TOOL_KINDS, ai_review, rewrite,
                   tool_run, typeset)
+from ..pdf_tools import merge_blocks
 from ..audit import log as audit_log
 from ..templates import effective_prompts, resolve_prompt
 from ..usage import ensure_quota, record_usage
@@ -151,6 +152,8 @@ async def create_node(pid: str, body: NodeCreate, user: User = Depends(get_curre
         raise HTTPException(400, "未知节点类型")
     if body.type in REWRITEABLE and not body.subtype:
         raise HTTPException(400, "改写/转换节点需要 format_type（tv_script/newspaper/wechat/...）")
+    if body.type == "tool" and body.subtype and body.subtype not in TOOL_KINDS + ("pdf_extract",):
+        raise HTTPException(400, f"不支持的工具类型：{body.subtype}")
     node = CanvasNode(project_id=pid, type=body.type, subtype=body.subtype, label=body.label or body.type,
                       position_x=body.position.x, position_y=body.position.y, config=body.config or {})
     db.add(node)
@@ -176,6 +179,13 @@ async def update_node(nid: str, body: NodeUpdate, user: User = Depends(get_curre
 @router.delete("/nodes/{nid}")
 async def delete_node(nid: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     node = await _owned_node(db, nid, user)
+    # 清理该节点的上传文件（PDF 版面提取等）
+    try:
+        import shutil
+        from pathlib import Path
+        shutil.rmtree(Path("/www/wwwroot/content-studio/backend/uploads") / node.project_id / nid, ignore_errors=True)
+    except Exception:
+        pass
     await db.execute(delete(CanvasEdge).where((CanvasEdge.source_node_id == nid) | (CanvasEdge.target_node_id == nid)))
     await db.execute(delete(Revision).where(Revision.node_id == nid))
     await db.execute(delete(CanvasNode).where(CanvasNode.id == nid))
@@ -316,8 +326,29 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model}
 
         if node.type == "tool":
-            await ensure_quota(db, user)
             kind = (node.subtype or "condense").strip()
+
+            if kind == "pdf_extract":
+                # PDF 版面提取：本地解析，不调用 AI、不消耗额度
+                info = (node.config or {}).get("pdf") or {}
+                blocks = info.get("blocks") or []
+                if not blocks:
+                    raise HTTPException(400, "请先上传 PDF 文件并选择版块")
+                indexes = info.get("selected") or [b["index"] for b in blocks]
+                title, content = merge_blocks(blocks, indexes)
+                if not content.strip():
+                    raise HTTPException(400, "所选版块没有可用的文字内容")
+                rev = Revision(project_id=node.project_id, node_id=node.id,
+                               title=title, content=content, format_type="pdf_extract",
+                               status="rewritten", model="pdf-parse")
+                db.add(rev)
+                await db.commit()
+                await db.refresh(rev)
+                await set_status(db, node, "done")
+                return {"node_id": node.id, "status": "done", "revision_id": rev.id,
+                        "kind": kind, "chars": len(content), "blocks": len(indexes)}
+
+            await ensure_quota(db, user)
             if kind not in TOOL_KINDS:
                 raise HTTPException(400, f"不支持的工具类型: {kind}")
             candidates = [r for r in await upstream_revisions(db, node) if not _is_style(r)]

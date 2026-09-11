@@ -182,6 +182,12 @@ async def admin_delete_project(pid: str, user: User = Depends(admin_only), db: A
     await db.execute(delete(CanvasNode).where(CanvasNode.project_id == pid))
     await db.execute(delete(Project).where(Project.id == pid))
     await db.commit()
+    try:
+        import shutil
+        from pathlib import Path
+        shutil.rmtree(Path("/www/wwwroot/content-studio/backend/uploads") / pid, ignore_errors=True)
+    except Exception:
+        pass
     await audit_log(db, action="admin_project_delete", user=user, target_type="project", target_id=pid,
                     detail={"name": name})
     return {"ok": True}

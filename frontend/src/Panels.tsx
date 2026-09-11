@@ -620,6 +620,122 @@ function AiReviewPanel({ node }: { node: FlowNode }) {
   )
 }
 
+/* ---------------- 工具：PDF 版面提取 ---------------- */
+function PdfPanel({ node }: { node: FlowNode }) {
+  const { rev, reload } = useRevision(node.id)
+  const [info, setInfo] = useState<any>(null)
+  const [picked, setPicked] = useState<number[]>([])
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api.pdfStatus(node.id)
+      setInfo(d)
+      if (d.uploaded && d.blocks?.length) {
+        const sel = (d.selected && d.selected.length) ? d.selected : d.blocks.map((b) => b.index)
+        setPicked(sel)
+      }
+    } catch { setInfo({ uploaded: false }) }
+  }, [node.id])
+
+  useEffect(() => { void load(); void reload() }, [node.id])
+
+  async function upload(file: File) {
+    setBusy(true); setMsg('')
+    try {
+      const d = await api.uploadPdf(node.id, file)
+      setInfo({ uploaded: true, ...d })
+      setPicked(d.blocks.map((b) => b.index))
+      useStore.getState().toastMsg(`已解析：${d.pages} 页 / ${d.blocks.length} 个版块`)
+    } catch (e) { setMsg(errText(e)); useStore.getState().toastMsg(errText(e)) }
+    setBusy(false)
+  }
+
+  async function generate() {
+    if (!picked.length) { setMsg('请至少选择一个版块'); return }
+    setBusy(true); setMsg('')
+    try {
+      const r = await api.pdfSelect(node.id, picked)
+      useStore.getState().toastMsg(`已生成稿件：${r.chars} 字`)
+      useStore.getState().syncNode(node.id, { status: 'done' })
+      await reload()
+      await load()
+    } catch (e) { setMsg(errText(e)); useStore.getState().toastMsg(errText(e)) }
+    setBusy(false)
+  }
+
+  async function remove() {
+    if (!confirm('移除已上传的 PDF？已生成的稿件会保留。')) return
+    try { await api.pdfRemove(node.id); setInfo({ uploaded: false }); setPicked([]); await load() } catch (e) { useStore.getState().toastMsg(errText(e)) }
+  }
+
+  const blocks: any[] = info?.blocks || []
+  const toggle = (i: number) => setPicked((p) => (p.includes(i) ? p.filter((x) => x !== i) : [...p, i]))
+  const pickedChars = blocks.filter((b) => picked.includes(b.index)).reduce((sum, b) => sum + b.chars, 0)
+
+  return (
+    <div className="panel-body">
+      <p className="tip">
+        上传报纸/文件 PDF（文字版），系统按<b>版面版块</b>切分并还原断字断行；勾选需要的版块生成稿件，
+        再连到「AI 改写 / 审稿 / 转换」节点继续处理。扫描图片版 PDF 需先 OCR，暂不支持。
+      </p>
+
+      <input ref={inputRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
+      <div className="btn-row">
+        <button className="primary" disabled={busy} onClick={() => inputRef.current?.click()}>
+          {busy ? '⏳ 处理中…' : info?.uploaded ? '📄 重新上传 PDF' : '📄 上传 PDF 文件'}
+        </button>
+        {info?.uploaded ? <button onClick={remove} disabled={busy}>移除</button> : null}
+      </div>
+
+      {info?.uploaded ? (
+        <>
+          <div className="meta-chips">
+            <span className="chip">{info.filename}</span>
+            <span className="chip">{info.pages} 页</span>
+            <span className="chip">{info.total_chars} 字</span>
+            <span className="chip">{blocks.length} 个版块</span>
+            <span className="chip">已选 {picked.length} 个 · {pickedChars} 字</span>
+          </div>
+          <div className="btn-row">
+            <button onClick={() => setPicked(blocks.map((b) => b.index))}>全选</button>
+            <button onClick={() => setPicked([])}>全不选</button>
+            <button className="primary" disabled={busy || !picked.length} onClick={generate}>
+              {busy ? '⏳ 生成中…' : '✂️ 生成稿件（用所选版块）'}
+            </button>
+          </div>
+          <h4>版块列表（勾选需要的）</h4>
+          {blocks.map((b) => (
+            <label className={`pdf-block${picked.includes(b.index) ? ' on' : ''}`} key={b.index}>
+              <input type="checkbox" checked={picked.includes(b.index)} onChange={() => toggle(b.index)} />
+              <span className="pdf-block-main">
+                <b>第{b.page}版 · 第{b.column + 1}栏 · {b.chars}字</b>
+                {b.title ? <span className="pdf-block-title">《{b.title}》</span> : <span className="dim">（未识别标题）</span>}
+                <span className="pdf-block-preview">{b.preview}</span>
+              </span>
+            </label>
+          ))}
+        </>
+      ) : (
+        <div className="empty">还没有上传 PDF。
+支持文字版 PDF（报纸版面、公文、材料）。</div>
+      )}
+
+      {msg ? <div className="hint-warn">{msg}</div> : null}
+      <h4>生成的稿件</h4>
+      <OutBox rev={rev} hint="勾选版块后点「生成稿件」，结果会显示在这里。" />
+      {rev?.content ? (
+        <div className="btn-row">
+          <button onClick={() => copyText(rev.content)}>📋 一键复制（{rev.content.length} 字）</button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /* ---------------- 工具：稿件精简 / 风格提取 ---------------- */
 function ToolPanel({ node }: { node: FlowNode }) {
   const { rev, reload } = useRevision(node.id)
@@ -715,6 +831,7 @@ export default function ConfigPanel() {
         <div className="panel-body"><div className="empty">点击画布中的节点查看/配置。\n从左侧拖入节点，连线形成工作流。</div></div>
       ) : node.data.kind === 'draft_input' ? <DraftPanel node={node} />
         : node.data.kind === 'rewriter' || node.data.kind === 'transformer' ? <AiPanel node={node} />
+        : node.data.kind === 'tool' && node.data.subtype === 'pdf_extract' ? <PdfPanel node={node} />
         : node.data.kind === 'tool' ? <ToolPanel node={node} />
         : node.data.kind === 'reviewer' ? <ReviewPanel node={node} />
         : node.data.kind === 'ai_reviewer' ? <AiReviewPanel node={node} />

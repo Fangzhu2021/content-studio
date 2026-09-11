@@ -40,6 +40,7 @@ export const FORMATS: Record<string, string> = {
   toutiao: '头条新闻',
   condense: '稿件精简',
   style_prompt: '风格提取',
+  pdf_extract: 'PDF 提取',
 }
 
 export const TYPE_META: Record<NodeType, { label: string; color: string; icon: string; desc: string }> = {

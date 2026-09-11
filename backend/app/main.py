@@ -11,7 +11,7 @@ from .config import get_settings
 from .db import Base, async_session, engine
 from .migrate import run_migrations
 from .models import Project, User
-from .routers import admin, auth, invites, projects, templates_api, workflows
+from .routers import admin, auth, invites, pdf, projects, templates_api, workflows
 from .security import decode_token
 from .templates import seed_templates
 from .ws import manager
@@ -56,6 +56,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(invites.router, prefix="/api", tags=["invites"])
 app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(templates_api.router, prefix="/api", tags=["templates"])
+app.include_router(pdf.router, prefix="/api", tags=["pdf"])
 app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(workflows.router, prefix="/api", tags=["workflow"])
 

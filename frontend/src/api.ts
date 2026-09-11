@@ -91,6 +91,29 @@ export const api = {
     const { data } = await http.post(`/nodes/${nodeId}/content`, { title, content })
     return data as import('./types').Revision
   },
+  // ---------- PDF 版面提取 ----------
+  async uploadPdf(nodeId: string, file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    const { data } = await http.post(`/nodes/${nodeId}/pdf`, form)
+    return data as {
+      filename: string; size: number; pages: number; total_chars: number
+      blocks: { index: number; page: number; title: string; chars: number; column: number; preview: string }[]
+    }
+  },
+  async pdfStatus(nodeId: string) {
+    const { data } = await http.get(`/nodes/${nodeId}/pdf`)
+    return data as {
+      uploaded: boolean; filename?: string; size?: number; pages?: number; total_chars?: number
+      selected?: number[]; blocks?: { index: number; page: number; title: string; chars: number; column: number; preview: string }[]
+    }
+  },
+  async pdfSelect(nodeId: string, indexes: number[]) {
+    const { data } = await http.post(`/nodes/${nodeId}/pdf/select`, { indexes })
+    return data as { revision_id: string; title: string; chars: number; selected: number[]; content: string }
+  },
+  async pdfRemove(nodeId: string) { await http.delete(`/nodes/${nodeId}/pdf`) },
+
   // ---------- 节点库 / 提示词模板 ----------
   async getTemplates() {
     const { data } = await http.get('/templates')
