@@ -135,6 +135,15 @@ export const api = {
   async adminSaveSettings(body: Record<string, unknown>) {
     const { data } = await http.put('/admin/settings', body); return data
   },
+  async createInvite(role: string, days: number, note = '') {
+    const { data } = await http.post('/invites', { role, expires_days: days, note })
+    return data as { id: string; code: string; link: string; role: string; expires_at: string | null }
+  },
+  async listInvites() {
+    const { data } = await http.get('/invites')
+    return data as { id: string; code: string; link: string; role: string; note: string; used_by: string | null; revoked: boolean; expires_at: string | null; created_at: string | null }[]
+  },
+  async revokeInvite(id: string) { await http.post(`/invites/${id}/revoke`) },
   async adminDownloadUsageCsv(days = 30) {
     const token = getToken()
     const r = await fetch(`/api/admin/usage/export.csv?days=${days}`, { headers: { Authorization: `Bearer ${token}` } })

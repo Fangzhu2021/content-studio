@@ -2,7 +2,7 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,9 +15,18 @@ from ..schemas import InviteCreate
 router = APIRouter()
 
 
-def _out(i: Invite) -> dict:
+def invite_link(request: Request, code: str) -> str:
+    """生成带邀请码的注册链接（适配 Nginx 反代：优先取 X-Forwarded-*）"""
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host")
+            or (request.url.hostname or ""))
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    return f"{proto}://{host}/?invite={code}"
+
+
+def _out(i: Invite, request: Request | None = None) -> dict:
     return {
         "id": i.id, "code": i.code, "role": i.role, "note": i.note or "",
+        "link": invite_link(request, i.code) if request is not None else "",
         "expires_at": i.expires_at.isoformat() if i.expires_at else None,
         "used_by": i.used_by, "used_at": i.used_at.isoformat() if i.used_at else None,
         "revoked": bool(i.revoked),
@@ -26,13 +35,14 @@ def _out(i: Invite) -> dict:
 
 
 @router.get("/invites")
-async def list_invites(user: User = Depends(require_role("admin")), db: AsyncSession = Depends(get_db)):
+async def list_invites(request: Request, user: User = Depends(require_role("admin")),
+                       db: AsyncSession = Depends(get_db)):
     rows = await db.execute(select(Invite).order_by(Invite.created_at.desc()).limit(200))
-    return [_out(i) for i in rows.scalars()]
+    return [_out(i, request) for i in rows.scalars()]
 
 
 @router.post("/invites")
-async def create_invite(body: InviteCreate, user: User = Depends(require_role("admin")),
+async def create_invite(body: InviteCreate, request: Request, user: User = Depends(require_role("admin")),
                         db: AsyncSession = Depends(get_db)):
     if body.role not in ("admin", "editor", "reviewer", "viewer"):
         raise HTTPException(400, "角色不合法")
@@ -44,7 +54,7 @@ async def create_invite(body: InviteCreate, user: User = Depends(require_role("a
     await db.refresh(invite)
     await log(db, action="invite_create", user=user, target_type="invite", target_id=invite.id,
               detail={"code": code, "role": invite.role, "days": body.expires_days})
-    return _out(invite)
+    return _out(invite, request)
 
 
 @router.post("/invites/{iid}/revoke")

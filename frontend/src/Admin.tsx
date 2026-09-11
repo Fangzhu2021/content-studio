@@ -40,6 +40,8 @@ export default function AdminApp() {
   const [promptTpls, setPromptTpls] = useState<any[]>([])
   const [editNode, setEditNode] = useState<any>(null)
   const [editPrompt, setEditPrompt] = useState<any>(null)
+  const [invites, setInvites] = useState<any[]>([])
+  const [newInvite, setNewInvite] = useState<any>(null)
   const [q, setQ] = useState('')
   const [auditQ, setAuditQ] = useState({ action: '', username: '' })
   const [busy, setBusy] = useState(false)
@@ -48,7 +50,10 @@ export default function AdminApp() {
     setBusy(true)
     try {
       if (tab === 'overview') setOv(await api.adminOverview())
-      if (tab === 'users') setUsers(await api.adminUsers(q))
+      if (tab === 'users') {
+        setUsers(await api.adminUsers(q))
+        setInvites(await api.listInvites())
+      }
       if (tab === 'projects') setProjects(await api.adminProjects(q))
       if (tab === 'usage') {
         const d: any = await api.adminUsageDaily(14)
@@ -76,6 +81,22 @@ export default function AdminApp() {
       toastMsg(tip)
       await load()
     } catch (e) { toastMsg(errText(e)) }
+  }
+
+  async function copyInviteLink(iv: any) {
+    const text = iv.link || iv.code
+    try {
+      await navigator.clipboard.writeText(text)
+      toastMsg('注册链接已复制，发给同事即可')
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      toastMsg('注册链接已复制')
+    }
   }
 
   async function resetPassword(u: any) {
@@ -171,15 +192,9 @@ export default function AdminApp() {
                 const daysRaw = Number((prompt('有效期天数', '7') || '7').trim())
                 const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(Math.floor(daysRaw), 365) : 7
                 try {
-                  const r = await fetch('/api/invites', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('cs_token')}` },
-                    body: JSON.stringify({ role: validRoles.includes(role) ? role : 'editor', expires_days: days }),
-                  })
-                  const d = await r.json()
-                  if (!r.ok) throw new Error(d.detail || '生成失败')
-                  toastMsg(`邀请码：${d.code}（${days} 天内有效，角色 ${d.role}）`)
-                  alert(`邀请码：${d.code}\n有效期：${days} 天\n角色：${d.role}\n\n请发给需要注册的同事。`)
+                  const d = await api.createInvite(validRoles.includes(role) ? role : 'editor', days)
+                  setNewInvite(d)
+                  await load()
                 } catch (e) { toastMsg(errText(e)) }
               }}>＋ 生成邀请码</button>
             </div>
@@ -221,6 +236,38 @@ export default function AdminApp() {
               </tbody>
             </table>
             <p className="tip">配额留空 = 继承全局默认；填 0 = 禁止该账号调用 AI；修改角色或禁用会使其登录立即失效。</p>
+
+            <div className="admin-toolbar" style={{ marginTop: 20 }}>
+              <b>邀请码（{invites.length}）</b>
+              <div className="spacer" />
+              <span className="dim">把「链接」直接发给同事，对方打开即自动填入邀请码</span>
+            </div>
+            <table className="tbl">
+              <thead><tr><th>邀请码</th><th>角色</th><th>状态</th><th>有效期至</th><th>注册链接</th><th>操作</th></tr></thead>
+              <tbody>
+                {invites.map((iv) => {
+                  const expired = iv.expires_at ? new Date(iv.expires_at) < new Date() : false
+                  const state = iv.revoked ? '已作废' : iv.used_by ? '已使用' : expired ? '已过期' : '可用'
+                  return (
+                    <tr key={iv.id}>
+                      <td><code>{iv.code}</code></td>
+                      <td>{iv.role}</td>
+                      <td>{state === '可用' ? <span className="ok">{state}</span> : <span className="dim">{state}</span>}</td>
+                      <td>{fmtTime(iv.expires_at)}</td>
+                      <td className="detail-cell">{iv.link}</td>
+                      <td>
+                        <button onClick={() => copyInviteLink(iv)}>复制链接</button>
+                        {state === '可用' ? <button className="danger" onClick={async () => {
+                          if (!confirm(`作废邀请码 ${iv.code}？`)) return
+                          try { await api.revokeInvite(iv.id); toastMsg('已作废'); await load() } catch (e) { toastMsg(errText(e)) }
+                        }}>作废</button> : null}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            {invites.length === 0 ? <div className="empty">还没有邀请码，点右上角「＋ 生成邀请码」。</div> : null}
           </>
         ) : null}
 
@@ -459,6 +506,23 @@ export default function AdminApp() {
         ) : null}
         </main>
       </div>
+      {newInvite ? (
+        <div className="modal-mask" onClick={() => setNewInvite(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>邀请码已生成</h3>
+            <p className="tip">把下面这条链接发给同事，对方打开后会自动切到「注册」并填入邀请码。</p>
+            <label>注册链接</label>
+            <input readOnly value={newInvite.link} onFocus={(e) => e.currentTarget.select()} />
+            <div className="dim">
+              邀请码 <b>{newInvite.code}</b> · 角色 {newInvite.role} · 有效期至 {fmtTime(newInvite.expires_at)}
+            </div>
+            <div className="btn-row right">
+              <button onClick={() => setNewInvite(null)}>关闭</button>
+              <button className="primary" onClick={() => copyInviteLink(newInvite)}>📋 复制链接</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
   )

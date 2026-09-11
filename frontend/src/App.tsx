@@ -18,11 +18,23 @@ function Login() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [regMode, setRegMode] = useState<{ invite_required: boolean; password_rule: string } | null>(null)
+  const [fromLink, setFromLink] = useState(false)
 
   useEffect(() => {
     void (async () => {
       try { setRegMode(await api.registerMode()) } catch { /* 忽略 */ }
     })()
+  }, [])
+
+  // 从「带邀请码的链接」进入时：自动切到注册并填入邀请码
+  useEffect(() => {
+    const p = new URLSearchParams(location.search)
+    const code = (p.get('invite') || p.get('code') || '').trim().toUpperCase()
+    if (code) {
+      setMode('register')
+      setInvite(code)
+      setFromLink(true)
+    }
   }, [])
 
   async function submit() {
@@ -50,6 +62,7 @@ function Login() {
           <input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="邀请码（向管理员索取）"
             onKeyDown={(e) => { if (e.key === 'Enter') void submit() }} />
         ) : null}
+        {fromLink ? <div className="login-hint" style={{ margin: '4px 0 8px' }}>已从链接带入邀请码，填写用户名与密码即可注册</div> : null}
         {err ? <div className="login-err">{err}</div> : null}
         <button className="primary wide" disabled={busy || !u || !p} onClick={submit}>
           {busy ? '…' : mode === 'login' ? '登 录' : '注册并登录'}
