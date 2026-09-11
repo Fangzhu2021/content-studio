@@ -41,6 +41,7 @@ export const FORMATS: Record<string, string> = {
   condense: '稿件精简',
   style_prompt: '风格提取',
   pdf_extract: 'PDF 提取',
+  topic_plan: '选题策划',
 }
 
 export const TYPE_META: Record<NodeType, { label: string; color: string; icon: string; desc: string }> = {

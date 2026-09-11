@@ -736,12 +736,31 @@ function PdfPanel({ node }: { node: FlowNode }) {
   )
 }
 
-/* ---------------- 工具：稿件精简 / 风格提取 ---------------- */
+/* ---------------- 工具：稿件精简 / 风格提取 / 新闻选题策划 ---------------- */
+const TOOL_UI: Record<string, { tip: string; action: string; header: string; hint?: string }> = {
+  condense: {
+    tip: '从上游草稿提取精简稿：保留核心事实（时间/地点/主体/事件/数据/要求），压缩到指定篇幅。可用精简稿继续做多平台改写。',
+    action: '✂️ 提取精简稿', header: '精简稿预览',
+  },
+  style_prompt: {
+    tip: '从上游草稿提炼「写作风格提示词」。把它连线到「AI 改写 / 新媒体转换」节点，该风格会自动带入下游节点的提示词。',
+    action: '🎨 提取风格提示词', header: '风格提示词预览',
+    hint: '提示：把本节点连线到「AI 改写 / 新媒体转换」节点，该风格会自动生效。',
+  },
+  topic_plan: {
+    tip: '根据上游草稿的基本信息，策划 3~5 个可落地的新闻选题：每条含核心角度、目标受众与传播点、采访对象与必问问题、呈现形式与平台、时效与风险提示，最后给出总体策划思路。',
+    action: '💡 策划新闻选题', header: '选题策划方案预览',
+    hint: '提示：把选定的选题复制到「草稿输入」节点，即可继续走改写/转换/审稿流程。',
+  },
+}
+
 function ToolPanel({ node }: { node: FlowNode }) {
   const { rev, reload } = useRevision(node.id)
   const [busy, setBusy] = useState(false)
   const cfg = (node.data.config || {}) as Record<string, any>
-  const isCondense = node.data.subtype === 'condense'
+  const sub = node.data.subtype || 'condense'
+  const ui = TOOL_UI[sub] || TOOL_UI.condense
+  const isCondense = sub === 'condense'
   const ratio = String(cfg.ratio || '0.35')
 
   async function saveRatio(v: string) {
@@ -757,7 +776,7 @@ function ToolPanel({ node }: { node: FlowNode }) {
     setBusy(true)
     try {
       const r: any = await api.executeNode(node.id, {})
-      useStore.getState().toastMsg(`${isCondense ? '精简稿' : '风格提示词'}已生成（${r.chars || 0} 字）`)
+      useStore.getState().toastMsg(`${ui.header.replace('预览', '')}已生成（${r.chars || 0} 字）`)
       useStore.getState().syncNode(node.id, { status: 'done' })
       await reload()
     } catch (e) {
@@ -769,13 +788,9 @@ function ToolPanel({ node }: { node: FlowNode }) {
 
   return (
     <div className="panel-body">
-      <p className="tip">
-        {isCondense
-          ? '从上游草稿提取精简稿：保留核心事实（时间/地点/主体/事件/数据/要求），压缩到原稿 1/3 以内。可用精简稿继续做多平台改写。'
-          : '从上游草稿提炼「写作风格提示词」。把它连线到「AI 改写 / 新媒体转换」节点，该风格会自动带入下游节点的提示词。'}
-      </p>
+      <p className="tip">{ui.tip}</p>
       <button className="primary wide" onClick={run} disabled={busy}>
-        {busy ? '⏳ 处理中…' : isCondense ? '✂️ 提取精简稿' : '🎨 提取风格提示词'}
+        {busy ? '⏳ 处理中…' : ui.action}
       </button>
       {isCondense ? (
         <>
@@ -787,17 +802,15 @@ function ToolPanel({ node }: { node: FlowNode }) {
           </select>
         </>
       ) : null}
-      <PromptEditor node={node} defaultKey={node.data.subtype} />
-      <h4>{isCondense ? '精简稿预览' : '风格提示词预览'}</h4>
+      <PromptEditor node={node} defaultKey={sub} />
+      <h4>{ui.header}</h4>
       <OutBox rev={rev} hint="执行后在此预览结果。" />
       {rev?.content ? (
         <div className="btn-row">
           <button onClick={() => copyText(rev.content)}>📋 一键复制（{rev.content.length} 字）</button>
         </div>
       ) : null}
-      {!isCondense && rev?.content ? (
-        <div className="hint-warn">提示：把本节点连线到「AI 改写 / 新媒体转换」节点，该风格会自动生效。</div>
-      ) : null}
+      {ui.hint && rev?.content ? <div className="hint-warn">{ui.hint}</div> : null}
     </div>
   )
 }

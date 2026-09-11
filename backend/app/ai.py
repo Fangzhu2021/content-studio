@@ -193,7 +193,26 @@ PROMPTS["style_prompt"] = STYLE_PROMPT
 FORMAT_LABELS["condense"] = "稿件精简"
 FORMAT_LABELS["style_prompt"] = "风格提取"
 
-TOOL_KINDS = ("condense", "style_prompt")
+
+# ---------------- 工具节点：新闻选题策划 ----------------
+TOPIC_PROMPT = (
+    "你是一名资深新闻策划编辑。请根据提供的素材，策划 3~5 个【可落地】的新闻选题。\n"
+    "每个选题按以下结构输出（用【】小标题，纯文本，不要 Markdown 标记）：\n"
+    "【选题一】选题名称（不超过 20 字，有吸引力但不夸大）\n"
+    "· 核心角度：这条选题的切入点，说明它与常规报道的差异（1~2 句）\n"
+    "· 目标受众与传播点：谁会关注、为什么愿意转发（1~2 句）\n"
+    "· 采访对象与必问问题：列出 2~3 类采访对象，每类配 1~2 个关键问题\n"
+    "· 呈现形式与发布平台：建议形式（消息 / 通讯 / 短视频 / 图文 / 图解 / 直播）与对应平台\n"
+    "· 时效与风险提示：最佳发布时机，以及需要核实的点或表述风险\n"
+    "全部选题之后，用一行给出【总体策划思路】：说明这些选题如何组合成一个完整的报道方案。\n"
+    "若素材信息不足，另起一段用【需要核实的信息】列出待确认事项。\n"
+    "要求：只能使用素材中已给出的事实，不得编造人名、数字与情节；只输出策划方案本身，不要解释。"
+)
+PROMPTS["topic_plan"] = TOPIC_PROMPT
+FORMAT_LABELS["topic_plan"] = "新闻选题策划"
+
+TOOL_KINDS = ("condense", "style_prompt", "topic_plan")
+
 
 
 async def tool_run(kind: str, title: str, content: str,
@@ -251,6 +270,14 @@ async def tool_run(kind: str, title: str, content: str,
 
 def _mock_tool(kind: str, title: str, content: str) -> str:
     body = (content or "").strip()
+    if kind == "topic_plan":
+        return ("【选题一】" + (title or "素材主线") + "的现场直击\n"
+                "· 核心角度：以现场细节切入……\n"
+                "· 目标受众与传播点：……\n"
+                "· 采访对象与必问问题：……\n"
+                "· 呈现形式与发布平台：……\n"
+                "· 时效与风险提示：……\n"
+                "（模拟模式：配置 DeepSeek Key 后输出完整策划方案）")
     if kind == "condense":
         keep = body[: max(60, int(len(body) / 3))]
         return f"【精简稿 · 模拟模式】\n{title}\n\n{keep}……"
