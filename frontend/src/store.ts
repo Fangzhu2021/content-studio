@@ -14,8 +14,11 @@ export interface FlowNode {
 export interface FlowEdge { id: string; source: string; target: string; animated?: boolean }
 
 export function toFlowNode(n: CanvasNode): FlowNode {
+  const meta = TYPE_META[n.type as keyof typeof TYPE_META]
   const fmt = FORMATS[n.subtype] || ''
-  const label = n.label || (fmt ? `${TYPE_META[n.type as keyof typeof TYPE_META].label} · ${fmt}` : TYPE_META[n.type as keyof typeof TYPE_META].label)
+  const fallback = fmt ? `${meta?.label || n.type} · ${fmt}` : (meta?.label || n.type)
+  // 后端在未传 label 时会用类型名兜底，这里把这种占位名换回可读名称
+  const label = (n.label && n.label !== n.type) ? n.label : fallback
   return { id: n.id, type: 'cs', position: n.position, data: { kind: n.type, subtype: n.subtype, label, status: n.status || 'idle', error: n.error || '', config: n.config || {} } }
 }
 export function toFlowEdge(e: CanvasEdge): FlowEdge { return { id: e.id, source: e.source, target: e.target } }

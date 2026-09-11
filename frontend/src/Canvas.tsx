@@ -73,7 +73,7 @@ function CanvasInner() {
     try {
       const spec = JSON.parse(raw)
       const pos = rf.screenToFlowPosition({ x: ev.clientX, y: ev.clientY })
-      const node = await api.createNode(currentId, { type: spec.kind, subtype: spec.subtype || '', position: { x: Math.round(pos.x), y: Math.round(pos.y) } })
+      const node = await api.createNode(currentId, { type: spec.kind, subtype: spec.subtype || '', label: spec.label || '', position: { x: Math.round(pos.x), y: Math.round(pos.y) } })
       upsertNodeLocal({ id: node.id, type: 'cs', position: node.position, data: { kind: node.type, subtype: node.subtype, label: node.label, status: node.status || 'idle', config: (node as any).config || {} } })
       select(node.id)
     } catch (e) { toastMsg(errText(e)) }
