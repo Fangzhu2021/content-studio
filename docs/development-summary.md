@@ -135,7 +135,7 @@ AI 审稿节点 → 节点级提示词编辑 → 工具节点（稿件精简 / �
 
 **方式**：Playwright + 无头 Chromium，直接驱动真实页面（非 mock 接口），真实 DeepSeek 调用。
 
-**脚本清单**（`/www/wwwroot/.e2e/`）
+**脚本清单**（`e2e/（自动化脚本目录）`）
 `e2e.js`（主流程）· `ai_review_check / _pass / _reject`（AI 审稿三种结果）· `prompt_check / prompt_check2`（自定义提示词生效与非回显）· `prefill_check`（提示词预填/未保存提示/恢复默认）· `tool_check`（工具节点）· `custom_flow_check`（无模板自由流程）· `ui_check / palette_check / panel_check`（标题、标签、拖拽调宽、视觉区分）· `copy_check`（复制按钮）· `diag / tool_diag`（诊断）
 
 **关键结果**
@@ -221,7 +221,7 @@ cd /path/to/content-studio && git log --oneline        # 版本历史
 
 **背景**：系统已有真实用户（demo、admin、dengtt、xml），需要开放给更多同事前必须先补齐安全与费用控制。
 
-**升级前准备**：数据库双格式备份（`cs-20260910-0654.dump/.sql`）、代码 bundle、`.env` 备份、标签 `v0.1.0-pre-multiuser`；并修复了 `/www/backup` 目录缺执行位导致 pg_dump 失败的问题。
+**升级前准备**：数据库双格式备份（`cs-20260910-0654.dump/.sql`）、代码 bundle、`.env` 备份、标签 `v0.1.0-pre-multiuser`；并修复了 备份目录 目录缺执行位导致 pg_dump 失败的问题。
 
 **本次落地**（提交 `31c0430`，全部为新增变更，不动既有数据）
 - 🔴→✅ **WebSocket 越权修复**：原先只验 token 不验归属，任何登录用户可订阅他人项目状态；现校验 token 版本 + 项目归属，越权关 4403
