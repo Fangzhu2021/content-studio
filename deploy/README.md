@@ -16,7 +16,7 @@
 （改完代码：cd backend && sudo systemctl restart content-studio-backend）
 
 ## 前端
-    cd /www/wwwroot/content-studio/frontend
+    cd /path/to/content-studio/frontend
     npm run build        # 产物 dist/（重载 nginx 不需要，静态直读）
 可选宝塔「Node 项目」托管 dev/build。
 

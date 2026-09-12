@@ -12,12 +12,12 @@ from ..audit import log as audit_log
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import CanvasNode, Revision, User
+from ..paths import UPLOAD_ROOT
 from ..pdf_tools import extract_blocks, merge_blocks
 from ..schemas import PdfSelectIn
 
 router = APIRouter()
 
-UPLOAD_ROOT = Path("/www/wwwroot/content-studio/backend/uploads")
 MAX_MB = 40
 PDF_KIND = "pdf_extract"
 

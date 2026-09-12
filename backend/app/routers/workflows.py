@@ -11,6 +11,7 @@ from ..concurrency import ai_slot
 from ..templates import effective_prompts, resolve_prompt
 from ..usage import ensure_quota, record_usage
 from ..db import get_db
+from ..paths import UPLOAD_ROOT
 from ..deps import get_current_user
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
 from ..schemas import ContentIn, EdgeCreate, ExecuteIn, NodeCreate, NodeUpdate, ReviewIn
@@ -199,8 +200,7 @@ async def delete_node(nid: str, user: User = Depends(get_current_user), db: Asyn
     # 清理该节点的上传文件（PDF 版面提取等）
     try:
         import shutil
-        from pathlib import Path
-        shutil.rmtree(Path("/www/wwwroot/content-studio/backend/uploads") / node.project_id / nid, ignore_errors=True)
+        shutil.rmtree(UPLOAD_ROOT / node.project_id / nid, ignore_errors=True)
     except Exception:
         pass
     await db.execute(delete(CanvasEdge).where((CanvasEdge.source_node_id == nid) | (CanvasEdge.target_node_id == nid)))

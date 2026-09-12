@@ -1,10 +1,10 @@
 # 宝塔站点 server 块参考（放置于站点配置或 /etc/nginx/conf.d）
-# 前端静态产物: /www/wwwroot/content-studio/frontend/dist
+# 前端静态产物: /path/to/content-studio/frontend/dist
 server {
     listen 80;
     server_name YOUR_SERVER_IP;
 
-    root /www/wwwroot/content-studio/frontend/dist;
+    root /path/to/content-studio/frontend/dist;
     index index.html;
 
     # 前端 SPA

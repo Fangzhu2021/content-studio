@@ -7,8 +7,8 @@ Wants=postgresql.service
 Type=simple
 User=yyrm
 Group=yyrm
-WorkingDirectory=/www/wwwroot/content-studio/backend
-ExecStart=/www/wwwroot/content-studio/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+WorkingDirectory=/path/to/content-studio/backend
+ExecStart=/path/to/content-studio/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
 

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audit import log as audit_log
 from ..db import get_db
+from ..paths import UPLOAD_ROOT
 from ..deps import get_current_user
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
 from ..ai import FORMAT_LABELS  # noqa: F401  预留
@@ -128,8 +129,7 @@ async def delete_project(pid: str, user: User = Depends(get_current_user), db: A
     await db.commit()
     try:
         import shutil
-        from pathlib import Path
-        shutil.rmtree(Path("/www/wwwroot/content-studio/backend/uploads") / pid, ignore_errors=True)
+        shutil.rmtree(UPLOAD_ROOT / pid, ignore_errors=True)
     except Exception:
         pass
     await audit_log(db, action="project_delete", user=user, target_type="project", target_id=pid,
