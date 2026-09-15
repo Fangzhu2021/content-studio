@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { errText, useStore } from './store'
 
-type Tab = 'overview' | 'users' | 'projects' | 'usage' | 'audit' | 'templates' | 'settings'
+type Tab = 'overview' | 'runlogs' | 'users' | 'projects' | 'usage' | 'audit' | 'templates' | 'settings'
 
 type TabMeta = { key: Tab; label: string; desc: string; badge?: (ov: any, users: any[], projects: any[]) => string | number }
 const TABS: TabMeta[] = [
   { key: 'overview', label: '📊 概览', desc: '系统总体情况与本月消耗' },
+  { key: 'runlogs', label: '🧾 运行台账', desc: '谁用了哪个模板、输入了什么、生成了什么（含失败与被拦截）', badge: () => '' },
   { key: 'users', label: '👥 用户管理', desc: '角色、配额、密码与邀请码', badge: (_o, u) => (u?.length ?? 0) },
   { key: 'projects', label: '📁 项目管理', desc: '全部项目、归属与清理', badge: (_o, _u, p) => (p?.length ?? 0) },
   { key: 'usage', label: '💰 用量看板', desc: 'AI 调用趋势与成本排行' },
@@ -14,6 +15,15 @@ const TABS: TabMeta[] = [
   { key: 'templates', label: '🧩 节点与提示词', desc: '维护节点库与全站提示词（改完全站生效）' },
   { key: 'settings', label: '⚙️ 系统设置', desc: '注册、配额与并发策略' },
 ]
+
+function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button type="button" className={`switch${checked ? ' on' : ''}`} role="switch" aria-checked={checked}
+      disabled={disabled} onClick={() => onChange(!checked)} title={checked ? '点击关闭' : '点击开启'}>
+      <span className="knob" />
+    </button>
+  )
+}
 
 function fmtTime(s?: string | null) {
   if (!s) return '-'
@@ -41,15 +51,29 @@ export default function AdminApp() {
   const [editNode, setEditNode] = useState<any>(null)
   const [editPrompt, setEditPrompt] = useState<any>(null)
   const [invites, setInvites] = useState<any[]>([])
+  const [regOpen, setRegOpen] = useState<boolean | null>(null)
   const [newInvite, setNewInvite] = useState<any>(null)
   const [q, setQ] = useState('')
   const [auditQ, setAuditQ] = useState({ action: '', username: '' })
+  const [runFilter, setRunFilter] = useState({ days: 30, username: '', node_type: '', status: '', only_failed: false, q: '' })
+  const [runSum, setRunSum] = useState<any>(null)
+  const [runLogs, setRunLogs] = useState<any>({ total: 0, items: [] })
+  const [runDetail, setRunDetail] = useState<any>(null)
+  const [versions, setVersions] = useState<any>(null)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     setBusy(true)
     try {
-      if (tab === 'overview') setOv(await api.adminOverview())
+      if (tab === 'overview') {
+        const o: any = await api.adminOverview()
+        setOv(o)
+        setRegOpen(!!o.registration_open)
+      }
+      if (tab === 'users' || tab === 'settings') {
+        const st: any = await api.adminSettings()
+        setRegOpen(!!st.registration_open)
+      }
       if (tab === 'users') {
         setUsers(await api.adminUsers(q))
         setInvites(await api.listInvites())
@@ -65,13 +89,18 @@ export default function AdminApp() {
         setNodeTpls(await api.adminNodeTemplates())
         setPromptTpls(await api.adminPromptTemplates())
       }
+      if (tab === 'runlogs') {
+        const f = { ...runFilter, only_failed: runFilter.only_failed || undefined }
+        setRunSum(await api.adminRunLogSummary(f))
+        setRunLogs(await api.adminRunLogs({ ...f, limit: 50, offset: 0 }))
+      }
       if (tab === 'settings') setSettings(await api.adminSettings())
     } catch (e: any) {
       if (e?.response?.status === 403) setDenied(true)
       else toastMsg(errText(e))
     }
     setBusy(false)
-  }, [tab, q, auditQ.action, auditQ.username, toastMsg])
+  }, [tab, q, auditQ.action, auditQ.username, runFilter, toastMsg])
 
   useEffect(() => { void load() }, [load])
 
@@ -81,6 +110,26 @@ export default function AdminApp() {
       toastMsg(tip)
       await load()
     } catch (e) { toastMsg(errText(e)) }
+  }
+
+  async function toggleRegistration(next: boolean) {
+    if (next && !confirm('开启后任何人都可以自行注册并消耗 AI 额度（受各账号配额限制），确定开启公开注册？')) return
+    try {
+      await api.adminSaveSettings({ registration_open: next })
+      setRegOpen(next)
+      setSettings((st: any) => ({ ...st, registration_open: next }))
+      toastMsg(next ? '已开启公开注册：无需邀请码即可注册' : '已关闭公开注册：新用户需邀请码')
+    } catch (e) { toastMsg(errText(e)) }
+  }
+
+  async function showVersions(templateType: string, templateId: string, title: string) {
+    try {
+      setVersions({ title, items: await api.adminTemplateVersions({ template_type: templateType, template_id: templateId }) })
+    } catch (e) { toastMsg(errText(e)) }
+  }
+
+  async function openRunDetail(id: string) {
+    try { setRunDetail(await api.adminRunLogDetail(id)) } catch (e) { toastMsg(errText(e)) }
   }
 
   async function copyInviteLink(iv: any) {
@@ -180,8 +229,164 @@ export default function AdminApp() {
           </>
         ) : null}
 
+        {tab === 'runlogs' ? (
+          <>
+            <div className="cards">
+              <div className="card"><div className="card-num">{runSum?.totals.runs ?? '-'}</div><div className="card-label">近 {runFilter.days} 天运行次数</div></div>
+              <div className="card"><div className="card-num ok">{runSum?.totals.ok ?? '-'}</div><div className="card-label">成功</div></div>
+              <div className="card"><div className="card-num danger">{runSum?.totals.failed ?? '-'}</div><div className="card-label">失败</div></div>
+              <div className="card"><div className="card-num">{runSum?.totals.blocked ?? '-'}</div><div className="card-label">被拦截（配额/排队）</div></div>
+              <div className="card"><div className="card-num">{runSum?.totals.users ?? '-'}</div><div className="card-label">使用人数</div></div>
+              <div className="card"><div className="card-num">{(runSum?.totals.prompt_tokens ?? 0) + (runSum?.totals.completion_tokens ?? 0)}</div><div className="card-label">消耗 token</div></div>
+              <div className="card"><div className="card-num">{runSum?.totals.cost_est ?? '-'}</div><div className="card-label">估算费用（元）</div></div>
+              <div className="card"><div className="card-num">{Math.round((runSum?.totals.avg_duration_ms ?? 0) / 100) / 10}s</div><div className="card-label">平均耗时</div></div>
+            </div>
+            <div className="admin-toolbar" style={{ marginTop: 12 }}>
+              <select value={runFilter.days} onChange={(e) => setRunFilter({ ...runFilter, days: Number(e.target.value) })}>
+                <option value={1}>近 1 天</option><option value={7}>近 7 天</option>
+                <option value={30}>近 30 天</option><option value={90}>近 90 天</option><option value={365}>近一年</option>
+              </select>
+              <select value={runFilter.node_type} onChange={(e) => setRunFilter({ ...runFilter, node_type: e.target.value })}>
+                <option value="">全部节点类型</option>
+                <option value="draft_input">草稿</option><option value="rewriter">AI 改写</option>
+                <option value="transformer">格式转换</option><option value="ai_reviewer">AI 审稿</option>
+                <option value="reviewer">人工审定</option><option value="tool">工具</option><option value="exporter">成稿导出</option>
+              </select>
+              <select value={runFilter.status} onChange={(e) => setRunFilter({ ...runFilter, status: e.target.value })}>
+                <option value="">全部状态</option><option value="ok">成功</option>
+                <option value="failed">失败</option><option value="blocked">被拦截</option><option value="running">运行中</option>
+              </select>
+              <input placeholder="用户/项目/节点/错误关键字" value={runFilter.q} style={{ maxWidth: 220 }}
+                onChange={(e) => setRunFilter({ ...runFilter, q: e.target.value })} />
+              <span className="check-row" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Switch checked={runFilter.only_failed} onChange={(v) => setRunFilter({ ...runFilter, only_failed: v })} />
+                <span className="dim">仅看失败/被拦截</span>
+              </span>
+              <div className="spacer" />
+              <button onClick={() => void load()}>查询</button>
+              <button onClick={async () => {
+                try {
+                  await api.adminDownloadRunLogsCsv({ ...runFilter, only_failed: runFilter.only_failed || undefined })
+                  toastMsg('台账已导出（默认不含正文预览）')
+                } catch (e) { toastMsg(errText(e)) }
+              }}>⬇ 导出 CSV</button>
+              <button onClick={async () => {
+                if (!confirm('按保留期清理：删除 12 个月前的运行台账，确定？')) return
+                try {
+                  const r: any = await api.adminPruneRunLogs(12)
+                  toastMsg(`已清理 ${r.deleted} 条 12 个月前的台账`)
+                  await load()
+                } catch (e) { toastMsg(errText(e)) }
+              }}>🧹 归档清理</button>
+            </div>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>时间</th><th>用户</th><th>项目</th><th>节点</th><th>触发</th><th>状态</th>
+                  <th>模型</th><th>输入→输出</th><th>耗时</th><th>token</th><th>费用</th><th>提示词</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(runLogs.items || []).map((r: any) => (
+                  <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => void openRunDetail(r.id)}>
+                    <td className="dim">{fmtTime(r.created_at)}</td>
+                    <td>{r.username || '-'}</td>
+                    <td>{r.project_name || <span className="dim">(项目已删除)</span>}</td>
+                    <td><b>{r.node_label || r.node_type}</b><div className="dim">{r.node_type}{r.node_subtype ? ':' + r.node_subtype : ''}</div></td>
+                    <td>{{ manual: '手动', auto: '一键', retry: '重试' }[r.trigger as string] || r.trigger}</td>
+                    <td>{r.status === 'ok' ? <span className="ok">成功</span>
+                      : r.status === 'blocked' ? <span className="warn">已拦截</span>
+                      : r.status === 'running' ? <span className="dim">运行中</span>
+                      : <span className="danger">失败</span>}</td>
+                    <td>{r.model || '-'}</td>
+                    <td>{r.input_chars} → {r.output_chars}</td>
+                    <td>{r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + 's' : '-'}{r.queued_ms ? <span className="dim"> (排队 {Math.round(r.queued_ms / 1000)}s)</span> : null}</td>
+                    <td>{r.prompt_tokens}+{r.completion_tokens}{r.retries ? <span className="warn"> ↻{r.retries}</span> : null}</td>
+                    <td>{r.cost_est}</td>
+                    <td className="dim">
+                      {{ node: '节点自定义', global: '全站模板', builtin: '系统内置' }[r.prompt_source as string] || '-'}
+                      {r.prompt_template_version ? ` v${r.prompt_template_version}` : ''}
+                      {r.prompt_hash ? <div>#{r.prompt_hash}</div> : null}
+                    </td>
+                  </tr>
+                ))}
+                {(runLogs.items || []).length === 0 ? (
+                  <tr><td colSpan={12} className="dim" style={{ textAlign: 'center', padding: 22 }}>该范围内暂无运行记录</td></tr>
+                ) : null}
+              </tbody>
+            </table>
+            <div className="dim" style={{ margin: '8px 0 18px' }}>
+              共 {runLogs.total} 条，表格显示最近 {Math.min(50, (runLogs.items || []).length)} 条，点击任意一行查看输入/输出与参数快照。
+            </div>
+            <div className="two-col">
+              <div>
+                <h4>📈 模板使用排行（哪个节点用得最多）</h4>
+                <table className="tbl">
+                  <thead><tr><th>节点</th><th>类型</th><th>模板版本</th><th>次数</th></tr></thead>
+                  <tbody>
+                    {(runSum?.by_node_template || []).map((t: any, i: number) => (
+                      <tr key={i}><td>{t.label}</td><td className="dim">{t.subtype}</td><td>v{t.version}</td><td><b>{t.count}</b></td></tr>
+                    ))}
+                    {(runSum?.by_node_template || []).length === 0 ? <tr><td colSpan={4} className="dim">暂无</td></tr> : null}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h4>👤 使用人排行</h4>
+                <table className="tbl">
+                  <thead><tr><th>用户</th><th>运行次数</th></tr></thead>
+                  <tbody>
+                    {(runSum?.by_user || []).map((u: any, i: number) => (
+                      <tr key={i}><td>{u.username}</td><td><b>{u.count}</b></td></tr>
+                    ))}
+                    {(runSum?.by_user || []).length === 0 ? <tr><td colSpan={2} className="dim">暂无</td></tr> : null}
+                  </tbody>
+                </table>
+                <h4 style={{ marginTop: 14 }}>🧷 画布模板来源</h4>
+                <table className="tbl">
+                  <thead><tr><th>模板</th><th>次数</th></tr></thead>
+                  <tbody>
+                    {(runSum?.by_template || []).map((t: any, i: number) => (
+                      <tr key={i}><td>{t.template_key === 'standard_v1' ? '标准流程' : t.template_key === 'ai_review_v1' ? 'AI 审稿流程' : t.template_key === 'blank' ? '空白画布' : t.template_key}</td><td>{t.count}</td></tr>
+                    ))}
+                    {(runSum?.by_template || []).length === 0 ? <tr><td colSpan={2} className="dim">暂无</td></tr> : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {(runSum?.recent_failures || []).length ? (
+              <>
+                <h4 style={{ marginTop: 16 }}>⚠️ 最近的失败与被拦截</h4>
+                <table className="tbl">
+                  <thead><tr><th>时间</th><th>用户</th><th>节点</th><th>原因</th></tr></thead>
+                  <tbody>
+                    {runSum.recent_failures.map((r: any) => (
+                      <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => void openRunDetail(r.id)}>
+                        <td className="dim">{fmtTime(r.created_at)}</td><td>{r.username}</td>
+                        <td>{r.node_label || r.node_type}</td>
+                        <td className="danger">{r.error || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            ) : null}
+          </>
+        ) : null}
+
         {tab === 'users' ? (
           <>
+            <div className="reg-bar">
+              <Switch checked={!!regOpen} onChange={toggleRegistration} disabled={regOpen === null} />
+              <div className="reg-text">
+                <b>公开注册：{regOpen === null ? '读取中…' : regOpen ? '已开启' : '已关闭'}</b>
+                <span className="dim">
+                  {regOpen
+                    ? '任何人打开登录页即可自行注册（仍受账号配额限制）'
+                    : '新用户只能凭邀请码注册 —— 把下方邀请码链接发给同事'}
+                </span>
+              </div>
+            </div>
             <div className="admin-toolbar">
               <input placeholder="搜索用户名…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 240 }} />
               <button onClick={() => void load()}>搜索</button>
@@ -365,7 +570,7 @@ export default function AdminApp() {
               }}>＋ 新增节点</button>
             </div>
             <table className="tbl">
-              <thead><tr><th>分组</th><th>节点</th><th>图标</th><th>颜色</th><th>排序</th><th>提示词</th><th>状态</th><th>操作</th></tr></thead>
+              <thead><tr><th>分组</th><th>节点</th><th>图标</th><th>颜色</th><th>排序</th><th>提示词</th><th>版本</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 {nodeTpls.map((t) => (
                   <tr key={t.id}>
@@ -375,9 +580,11 @@ export default function AdminApp() {
                     <td><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 99, background: t.color }} /> {t.color}</td>
                     <td>{t.sort}</td>
                     <td>{t.prompt ? <span className="ok">{t.prompt.length} 字</span> : <span className="dim">未设置</span>}</td>
+                    <td><b>v{t.version || 1}</b></td>
                     <td>{t.enabled ? <span className="ok">启用</span> : <span className="danger">已停用</span>}</td>
                     <td>
                       <button onClick={() => setEditNode({ ...t })}>编辑</button>
+                      <button onClick={() => void showVersions('node', t.id, t.label)}>版本历史</button>
                       <button onClick={async () => {
                         try { await api.adminUpdateNodeTemplate(t.id, { enabled: !t.enabled }); toastMsg('已更新'); await load() } catch (e) { toastMsg(errText(e)) }
                       }}>{t.enabled ? '停用' : '启用'}</button>
@@ -436,17 +643,19 @@ export default function AdminApp() {
               <span className="dim">修改后对所有用户的对应节点生效（节点自身保存过的提示词优先）</span>
             </div>
             <table className="tbl">
-              <thead><tr><th>标识</th><th>名称</th><th>字数</th><th>范围</th><th>状态</th><th>操作</th></tr></thead>
+              <thead><tr><th>标识</th><th>名称</th><th>字数</th><th>版本</th><th>范围</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 {promptTpls.map((t) => (
                   <tr key={t.id}>
                     <td><code>{t.key}</code></td>
                     <td>{t.name}</td>
                     <td>{t.content.length}</td>
+                    <td><b>v{t.version || 1}</b></td>
                     <td>{t.scope === 'global' ? '全站' : '个人'}</td>
                     <td>{t.enabled ? <span className="ok">启用</span> : <span className="danger">已停用</span>}</td>
                     <td>
                       <button onClick={() => setEditPrompt({ ...t })}>编辑</button>
+                      <button onClick={() => void showVersions('prompt', t.id, t.key)}>版本历史</button>
                       <button onClick={async () => {
                         if (t.scope !== 'global') return
                         try { await api.adminUpdatePromptTemplate(t.id, { enabled: !t.enabled }); toastMsg('已更新'); await load() } catch (e) { toastMsg(errText(e)) }
@@ -480,10 +689,10 @@ export default function AdminApp() {
 
         {tab === 'settings' && settings ? (
           <div className="settings-form">
-            <label className="check-row">
-              <input type="checkbox" checked={!!settings.registration_open}
-                onChange={(e) => setSettings({ ...settings, registration_open: e.target.checked })} />
-              <span>开放公开注册（关闭时需邀请码）</span>
+            <label className="check-row" style={{ alignItems: 'center' }}>
+              <Switch checked={!!settings.registration_open}
+                onChange={(v) => setSettings({ ...settings, registration_open: v })} />
+              <span>开放公开注册（关闭时新用户需邀请码）</span>
             </label>
             <label>默认每人每月 AI 调用上限（留空/0 语义见说明）</label>
             <input type="number" value={settings.default_monthly_call_limit ?? 600}
@@ -509,6 +718,72 @@ export default function AdminApp() {
         ) : null}
         </main>
       </div>
+      {versions ? (
+        <div className="modal-mask" onClick={() => setVersions(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>版本历史：{versions.title}</h3>
+            <p className="tip">每次保存都会留存快照，便于回看"当时用的是哪一版"。台账中的节点模板版本号即对应这里。</p>
+            <table className="tbl">
+              <thead><tr><th>版本</th><th>修改人</th><th>时间</th><th>说明</th><th>内容</th></tr></thead>
+              <tbody>
+                {(versions.items || []).map((v: any) => (
+                  <tr key={v.id}>
+                    <td><b>v{v.version}</b></td>
+                    <td>{v.changed_by || '-'}</td>
+                    <td className="dim">{fmtTime(v.created_at)}</td>
+                    <td>{v.note || '-'}</td>
+                    <td className="dim">{JSON.stringify(v.snapshot).slice(0, 80)}</td>
+                  </tr>
+                ))}
+                {(versions.items || []).length === 0 ? <tr><td colSpan={5} className="dim">暂无版本记录（本次升级后新增的改动才会留存）</td></tr> : null}
+              </tbody>
+            </table>
+            <div className="btn-row right"><button onClick={() => setVersions(null)}>关闭</button></div>
+          </div>
+        </div>
+      ) : null}
+      {runDetail ? (
+        <div className="modal-mask" onClick={() => setRunDetail(null)}>
+          <div className="modal wide-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>运行台账详情</h3>
+            <p className="tip">
+              {fmtTime(runDetail.created_at)} · {runDetail.username} · {runDetail.project_name || '(项目已删除)'}
+              {' · '}{runDetail.node_label || runDetail.node_type}
+              {runDetail.node_subtype ? '(' + runDetail.node_type + ':' + runDetail.node_subtype + ')' : ''}
+              {' · '}{runDetail.status === 'ok' ? '成功' : runDetail.status === 'blocked' ? '被拦截' : runDetail.status}
+            </p>
+            <div className="run-meta">
+              <span>触发：{{ manual: '手动点击', auto: '一键执行', retry: '重试' }[runDetail.trigger as string] || runDetail.trigger}</span>
+              <span>模型：{runDetail.model || '-'}</span>
+              <span>token：{runDetail.prompt_tokens}+{runDetail.completion_tokens}</span>
+              <span>耗时：{runDetail.duration_ms}ms{runDetail.queued_ms ? `（排队 ${runDetail.queued_ms}ms）` : ''}</span>
+              <span>重试：{runDetail.retries}</span>
+              <span>费用：{runDetail.cost_est} 元</span>
+              <span>画布模板：{runDetail.template_key || '-'}</span>
+              <span>节点模板版本：v{runDetail.node_template_version || 1}</span>
+              <span>提示词来源：{{ node: '节点自定义', global: '全站模板', builtin: '系统内置' }[runDetail.prompt_source as string] || runDetail.prompt_source || '-'}
+                {runDetail.prompt_template_version ? ` v${runDetail.prompt_template_version}` : ''}
+                {runDetail.prompt_hash ? ` #${runDetail.prompt_hash}` : ''}</span>
+            </div>
+            {runDetail.error ? <p className="danger">失败原因：{runDetail.error}</p> : null}
+            <label>输入（{runDetail.input_chars} 字，前 500 字）</label>
+            <pre className="run-pre">{runDetail.input_preview || '（无，例如草稿/PDF 提取类节点）'}</pre>
+            <label>生成物（{runDetail.output_chars} 字，前 500 字）</label>
+            <pre className="run-pre">{runDetail.output_preview || '（无正文，例如审定/AI 审稿节点）'}</pre>
+            {runDetail.output_content ? (
+              <>
+                <label>生成物开头（来自稿件版本）</label>
+                <pre className="run-pre">{runDetail.output_content.slice(0, 800)}</pre>
+              </>
+            ) : null}
+            <label>参数快照</label>
+            <pre className="run-pre">{JSON.stringify(runDetail.params || {}, null, 2)}</pre>
+            <div className="btn-row right">
+              <button onClick={() => setRunDetail(null)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {newInvite ? (
         <div className="modal-mask" onClick={() => setNewInvite(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>

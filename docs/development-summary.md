@@ -505,3 +505,86 @@ cd /path/to/content-studio/backend
 | 端到端：并发上限=1 两个并发执行 | PASS（第二个 `queued_ms=10375`，两者均成功） |
 | 端到端：配额=0 → 失败提示 → 恢复 → 点重试 | PASS（提示真实原因；重试后节点=完成，服务端生成 1663 字稿件） |
 | 控制台错误 | 0 |
+
+---
+
+## 十五、运行台账：模板 × 用户 × 输入 × 生成物全链路留痕（提交 `ee0621c`）
+
+**背景**：系统此前只有「AI 用量计数」和「审计日志」两类记录——前者只回答"谁烧了多少 token"，后者只回答"谁点了什么按钮"。真正的业务问题一个都答不了：**哪个模板被谁用过几次？他填了什么？AI 生成了什么？这次失败是配额拦的还是真出错了？** 这一节把这三件事补齐。
+
+### 15.1 数据模型
+
+| 变更 | 说明 |
+|---|---|
+| 新表 `run_logs` | 一次节点执行 = 一行；从"点下执行"到"拿到生成物"的全过程 |
+| 新表 `template_versions` | 节点库/提示词模板每次改动留一份快照，台账里记的版本号能对上当时的原文 |
+| 新列 `node_templates.version`、`prompt_templates.version` | 模板当前版本号（新建=v1，每次保存 +1） |
+| 新列 `projects.template_key` | 画布来自哪个流程模板：`standard_v1` / `ai_review_v1` / `blank` |
+
+`run_logs` 关键字段：
+
+- **谁 / 何时 / 在哪**：`user_id` `username` `project_id` `project_name` `created_at`
+- **跑了什么**：`node_id` `node_type` `node_subtype` `node_label` `node_template_id` `node_template_version`
+- **怎么触发的**：`trigger` = `manual`（手动点） / `auto`（一键执行） / `retry`（失败后重试）
+- **结果**：`status` = `ok` / `failed` / `blocked`（配额或排队拦截） / `running`，附 `error` 可读原因
+- **输入输出**：`input_revision_id` `input_chars` `input_preview`（前 500 字）、`output_revision_id` `output_chars` `output_preview`（前 500 字）、`params`（参数快照 JSONB）
+- **成本与性能**：`model` `prompt_tokens` `completion_tokens` `cost_est` `duration_ms` `retries` `queued_ms`
+- **提示词溯源**：`prompt_source`（node 节点自定义 / global 全站模板 / builtin 系统内置）、`prompt_hash`（前 8 位 SHA-256，改没改一目了然）、`prompt_template_id` `prompt_template_version`
+
+### 15.2 记录口径（拍板的"推荐默认"）
+
+1. **成功、失败、被拦截全部入库**——只记成功会让"配额不够用""上游没连对"这类真实问题在报表里消失
+2. **只存 500 字预览 + 参数快照**，不整篇存原文；正文仍以稿件版本（`revisions`）为唯一权威副本
+3. **模板范围含版本化**：改模板不再是"黑箱覆盖"，而是 v1→v2→v3 可回溯
+4. **仅管理员可见**：普通用户看不到台账接口（非管理员访问返回 401/403）
+5. **删项目/删用户后保留统计、清空内容**：行不删，只把 `input_preview`、`output_preview`、`params` 清空，`project_id` 解绑但保留 `project_name`，因此"模板使用量、人均调用、成功率"等指标不会因为删项目而出现断层
+6. **保留期 12 个月**，后台一键归档清理
+
+### 15.3 埋点位置
+
+全部收口在 `backend/app/routers/workflows.py > _run_node()`：
+
+- 进入函数即建行（`status=running`），后台能看到"正在跑什么"
+- `_run_input()` 在拿到上游稿件后写输入快照；`_pinfo = await _prompt_info(...)` 记录本次**实际生效**的提示词（节点自定义 > 全站模板 > 内置）
+- `_finish_run()` 在 8 条返回路径（改写/转换、PDF 提取、AI 工具、人工审定 3 处、AI 审稿、导出直通、导出排版、草稿）收尾，写入生成物、模型、token、耗时、重试、排队
+- 两个 `except` 分支收尾：`HTTPException 429` → `blocked`，其余 → `failed`
+- 触发方式由调用方传入：手动执行接口读请求体 `trigger`，一键执行固定 `auto`，前端「↻ 重试执行」按钮传 `retry`
+- `ai_reviewer` 一次审多篇，台账记 `input_chars` 为待审总字数、`output_preview` 为各篇结论汇总
+
+### 15.4 后台接口
+
+| 接口 | 说明 |
+|---|---|
+| `GET /admin/run-logs` | 列表，支持 days / username / project_id / node_type / status / q / only_failed + 分页 |
+| `GET /admin/run-logs/{id}` | 详情（含输入输出预览、参数快照、生成物开头 4000 字） |
+| `GET /admin/run-logs/summary` | 统计：总量/成败/拦截、按节点、按人、按画布模板、按节点模板版本、按天、最近失败 |
+| `GET /admin/run-logs/export.csv` | 导出 CSV，**默认不含正文预览**，需显式 `with_preview=true` 才带 |
+| `POST /admin/run-logs/prune?months=12` | 按保留期归档清理 |
+| `GET /admin/template-versions` | 模板改动历史（谁、何时、第几版、快照） |
+
+### 15.5 管理后台界面
+
+左侧「功能区」新增 **🧾 运行台账**：8 张统计卡（次数/成功/失败/被拦截/使用人数/token/费用/平均耗时）→ 筛选条（时间范围、节点类型、状态、关键字、仅看失败、导出 CSV、归档清理）→ 明细表（点击任意行打开详情弹窗，看输入 500 字、生成物 500 字、参数快照、提示词来源与版本）→ 双栏排行（**模板使用排行**：哪个节点/哪一版用得最多；**使用人排行**；**画布模板来源**）→ 最近的失败与被拦截清单。
+
+「节点与提示词」页新增 **版本** 列与 **版本历史** 按钮。
+
+### 15.6 验证结果
+
+| 验证 | 结果 |
+|---|---|
+| 手动执行 AI 节点 → 台账落库 | PASS（demo / 微博文案 / manual / ok / deepseek-chat / 86+1057 token / 0.0022 元 / 全站模板 v1 / #6910faf8） |
+| 缺上游执行被拦 | PASS（HTTP 400，台账 `failed` 且带真实原因"缺少上游稿件内容…"） |
+| 一键执行（auto）与重试（retry）口径 | PASS（同一项目内同时存在 manual / auto / retry 三种触发） |
+| 配额设为 0 后执行 | PASS（HTTP 429，台账 `blocked`，统计里 `blocked=1` 与 `failed` 分开） |
+| 删除项目后再查台账 | PASS（5 条记录保留、元数据完整、预览与参数快照全部清空、`project_id` 已解绑） |
+| 模板版本化 | PASS（新建 v1 → 编辑 v2 → 再编辑 v3，`template_versions` 三份快照可回溯，修改人=admin） |
+| 普通用户访问台账接口 | PASS（401/403） |
+| CSV 导出 | PASS（下载 `run-logs-YYYY-MM-DD.csv`，默认表头不含"输入预览"） |
+| 浏览器端到端 | PASS（功能区入口、统计卡、6 行明细、详情弹窗、切换时间范围、CSV 下载、版本列、版本历史弹窗；控制台错误 0） |
+
+### 15.7 踩坑记录
+
+1. **`_run_node` 签名没改上，测试报 `TypeError: unexpected keyword argument 'trigger'`**：批量替换时锚点漏算了函数里的 docstring，替换静默失败（`str.replace` 不报错）。教训：脚本化改代码时每处替换都要 `assert count == 1`，本次其余 19 处都加了断言，唯独这一处早期漏加。
+2. **`func.cast(...)` 在 PostgreSQL 不可用**：按天统计里想算"每天失败数"，写了 `func.sum(func.cast(cond, Integer))`，PG 的 `CAST` 是语法关键字而非函数，改为按 `(日期, 状态)` 分组后在 Python 里汇总。
+3. **新表加了 `note` 列但迁移漏建**：模型加了字段、`CREATE TABLE IF NOT EXISTS` 对已存在的表不生效，必须补 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`。幂等迁移清单是这类问题的唯一防线。
+4. **`onClick={run}` 与 `run(isRetry)` 的隐式参数**：给函数加默认参数后，直接 `onClick={run}` 会把鼠标事件当第一个实参传入（真值）→ 每次手动点击都被记成"重试"。所有点击处统一改为 `onClick={() => run()}`。

@@ -22,6 +22,18 @@ STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_ai_usage_created ON ai_usage (created_at)",
     "CREATE INDEX IF NOT EXISTS ix_audit_logs_created ON audit_logs (created_at)",
     "CREATE INDEX IF NOT EXISTS ix_audit_logs_user ON audit_logs (user_id)",
+    # ---- 运行台账与模板版本（P1/P2）----
+    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS template_key VARCHAR(40) DEFAULT ''",
+    "ALTER TABLE node_templates ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1",
+    "ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1",
+    "UPDATE node_templates SET version = 1 WHERE version IS NULL",
+    "UPDATE prompt_templates SET version = 1 WHERE version IS NULL",
+    "CREATE INDEX IF NOT EXISTS ix_run_logs_user_created ON run_logs (user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_run_logs_project_created ON run_logs (project_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_run_logs_status ON run_logs (status)",
+    "CREATE INDEX IF NOT EXISTS ix_run_logs_created ON run_logs (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_template_versions_tpl ON template_versions (template_id, version)",
+    "ALTER TABLE template_versions ADD COLUMN IF NOT EXISTS note VARCHAR(200) DEFAULT ''",
 ]
 
 

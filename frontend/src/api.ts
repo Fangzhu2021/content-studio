@@ -154,6 +154,23 @@ export const api = {
   async adminUsageDaily(days = 14) { const { data } = await http.get('/admin/usage/daily', { params: { days } }); return data },
   async adminUsageUsers(days = 30) { const { data } = await http.get('/admin/usage/users', { params: { days } }); return data },
   async adminAudit(params: Record<string, unknown>) { const { data } = await http.get('/admin/audit', { params }); return data },
+  async adminRunLogs(params: Record<string, unknown>) { const { data } = await http.get('/admin/run-logs', { params }); return data },
+  async adminRunLogSummary(params: Record<string, unknown>) { const { data } = await http.get('/admin/run-logs/summary', { params }); return data },
+  async adminRunLogDetail(id: string) { const { data } = await http.get(`/admin/run-logs/${id}`); return data },
+  async adminTemplateVersions(params: Record<string, unknown>) { const { data } = await http.get('/admin/template-versions', { params }); return data },
+  async adminPruneRunLogs(months = 12) { const { data } = await http.post('/admin/run-logs/prune', null, { params: { months } }); return data },
+  async adminDownloadRunLogsCsv(params: Record<string, unknown>) {
+    const token = getToken()
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v !== '' && v !== null && v !== undefined) qs.set(k, String(v)) })
+    const r = await fetch(`/api/admin/run-logs/export.csv?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } })
+    const blob = await r.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `run-logs-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  },
   async adminSettings() { const { data } = await http.get('/admin/settings'); return data },
   async adminSaveSettings(body: Record<string, unknown>) {
     const { data } = await http.put('/admin/settings', body); return data

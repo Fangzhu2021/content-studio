@@ -7,6 +7,7 @@ from ..audit import log as audit_log
 from ..db import get_db
 from ..paths import UPLOAD_ROOT
 from ..deps import get_current_user
+from ..runlog import clear_project_previews
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
 from ..ai import FORMAT_LABELS  # noqa: F401  预留
 from ..schemas import ProjectCreate, ProjectUpdate
@@ -76,7 +77,8 @@ async def list_projects(user: User = Depends(get_current_user), db: AsyncSession
         select(Project).where(Project.owner_id == user.id).order_by(Project.updated_at.desc())
     )
     return [
-        {"id": p.id, "name": p.name, "created_at": p.created_at.isoformat() if p.created_at else None}
+        {"id": p.id, "name": p.name, "template_key": p.template_key or "",
+         "created_at": p.created_at.isoformat() if p.created_at else None}
         for p in rows.scalars()
     ]
 
@@ -84,15 +86,20 @@ async def list_projects(user: User = Depends(get_current_user), db: AsyncSession
 @router.post("/projects")
 async def create_project(body: ProjectCreate, user: User = Depends(get_current_user),
                          db: AsyncSession = Depends(get_db)):
-    project = Project(name=body.name, owner_id=user.id)
+    template_key = "blank"
+    if body.template:
+        template_key = "ai_review_v1" if body.ai_review else "standard_v1"
+    project = Project(name=body.name, owner_id=user.id, template_key=template_key)
     db.add(project)
     await db.flush()
     if body.template:
         await build_template(db, project, ai_review=body.ai_review)
     await db.commit()
     await audit_log(db, action="project_create", user=user, target_type="project", target_id=project.id,
-                    detail={"name": body.name, "template": body.template, "ai_review": body.ai_review})
-    return {"id": project.id, "name": project.name, "template": body.template, "ai_review": body.ai_review}
+                    detail={"name": body.name, "template": body.template, "ai_review": body.ai_review,
+                            "template_key": template_key})
+    return {"id": project.id, "name": project.name, "template": body.template,
+            "ai_review": body.ai_review, "template_key": template_key}
 
 
 @router.get("/projects/{pid}")
@@ -101,7 +108,7 @@ async def project_detail(pid: str, user: User = Depends(get_current_user), db: A
     nodes = (await db.execute(select(CanvasNode).where(CanvasNode.project_id == pid))).scalars().all()
     edges = (await db.execute(select(CanvasEdge).where(CanvasEdge.project_id == pid))).scalars().all()
     return {
-        "id": project.id, "name": project.name,
+        "id": project.id, "name": project.name, "template_key": project.template_key or "",
         "created_at": project.created_at.isoformat() if project.created_at else None,
         "nodes": [_node_out(n) for n in nodes],
         "edges": [_edge_out(e) for e in edges],
@@ -122,6 +129,8 @@ async def update_project(pid: str, body: ProjectUpdate, user: User = Depends(get
 async def delete_project(pid: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     project = await _get_owned_project(db, pid, user)
     name = project.name
+    # 台账保留"谁/何时/哪个节点/成败/耗时"的统计口径，仅清空正文预览
+    await clear_project_previews(db, pid, name)
     await db.execute(delete(Revision).where(Revision.project_id == pid))
     await db.execute(delete(CanvasEdge).where(CanvasEdge.project_id == pid))
     await db.execute(delete(CanvasNode).where(CanvasNode.project_id == pid))

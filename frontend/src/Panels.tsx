@@ -300,10 +300,10 @@ function AiPanel({ node }: { node: FlowNode }) {
   const [busy, setBusy] = useState(false)
   const isTransform = node.data.kind === 'transformer'
 
-  async function run() {
+  async function run(isRetry = false) {
     setBusy(true)
     try {
-      const r: any = await api.executeNode(node.id, {})
+      const r: any = await api.executeNode(node.id, isRetry ? { trigger: 'retry' } : {})
       useStore.getState().toastMsg(`执行完成（${r.model || ''}）${execExtra(r)}`)
       useStore.getState().syncNode(node.id, { status: 'done' })
       await reload()
@@ -321,8 +321,8 @@ function AiPanel({ node }: { node: FlowNode }) {
           ? `把上游已审定稿件转换为「${FORMATS[node.data.subtype]}」风格。`
           : `把草稿改写为「${FORMATS[node.data.subtype]}」。上游：草稿输入或上一层输出。`}
       </p>
-      <button className="primary wide" onClick={run} disabled={busy}>{busy ? '⏳ 执行中…' : '⚡ 执行改写'}</button>
-      <FailBanner node={node} onRetry={run} busy={busy} />
+      <button className="primary wide" onClick={() => run()} disabled={busy}>{busy ? '⏳ 执行中…' : '⚡ 执行改写'}</button>
+      <FailBanner node={node} onRetry={() => run(true)} busy={busy} />
       <PromptEditor node={node} defaultKey={node.data.subtype} />
       <h4>输出预览</h4>
       <OutBox rev={rev} hint="执行后在此预览改写结果。" />
@@ -436,11 +436,12 @@ function ExportPanel({ node }: { node: FlowNode }) {
 
   function choose(s: Revision) { setPick(s.id); setPreview(s) }
 
-  async function run() {
+  async function run(isRetry = false) {
     setBusy(true)
     try {
       const payload: Record<string, unknown> = {}
       if (pick) payload.revision_id = pick
+      if (isRetry) payload.trigger = 'retry'
       const r: any = await api.executeNode(node.id, payload)
       useStore.getState().syncNode(node.id, { status: 'done' })
       const rid = r.revision_id || pick
@@ -489,10 +490,10 @@ function ExportPanel({ node }: { node: FlowNode }) {
           </span>
         </label>
       ))}
-      <button className="primary wide" onClick={run} disabled={busy || sources.length === 0}>
+      <button className="primary wide" onClick={() => run()} disabled={busy || sources.length === 0}>
         {busy ? '⏳ 排版中…' : '📤 排版并生成最终成稿'}
       </button>
-      <FailBanner node={node} onRetry={run} busy={busy} />
+      <FailBanner node={node} onRetry={() => run(true)} busy={busy} />
       <PromptEditor node={node} defaultKey={`export_${node.data.subtype || 'wechat'}`} />
 
       <h4>2. 成稿预览 {preview ? <span className="dim">（{chars} 字）</span> : null}</h4>
@@ -798,10 +799,10 @@ function ToolPanel({ node }: { node: FlowNode }) {
     } catch (e) { useStore.getState().toastMsg(errText(e)) }
   }
 
-  async function run() {
+  async function run(isRetry = false) {
     setBusy(true)
     try {
-      const r: any = await api.executeNode(node.id, {})
+      const r: any = await api.executeNode(node.id, isRetry ? { trigger: 'retry' } : {})
       useStore.getState().toastMsg(`${ui.header.replace('预览', '')}已生成（${r.chars || 0} 字）${execExtra(r)}`)
       useStore.getState().syncNode(node.id, { status: 'done' })
       await reload()
@@ -815,10 +816,10 @@ function ToolPanel({ node }: { node: FlowNode }) {
   return (
     <div className="panel-body">
       <p className="tip">{ui.tip}</p>
-      <button className="primary wide" onClick={run} disabled={busy}>
+      <button className="primary wide" onClick={() => run()} disabled={busy}>
         {busy ? '⏳ 处理中…' : ui.action}
       </button>
-      <FailBanner node={node} onRetry={run} busy={busy} />
+      <FailBanner node={node} onRetry={() => run(true)} busy={busy} />
       {isCondense ? (
         <>
           <label>目标篇幅</label>

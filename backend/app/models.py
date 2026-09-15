@@ -33,6 +33,7 @@ class Project(Base):
     __tablename__ = "projects"
     id = Column(String(32), primary_key=True, default=new_id)
     name = Column(String(200), nullable=False)
+    template_key = Column(String(40), default="")   # 建项目时使用的模板：standard_v1 / ai_review_v1 / blank / custom:xxx
     owner_id = Column(String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -154,6 +155,7 @@ class NodeTemplate(Base):
     scope = Column(String(10), default="global")      # global | user
     owner_id = Column(String(32), nullable=True)
     enabled = Column(Boolean, default=True)
+    version = Column(Integer, default=1)      # 每次管理员修改 +1，用于运行台账精确溯源
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -167,4 +169,65 @@ class PromptTemplate(Base):
     scope = Column(String(10), default="global")
     owner_id = Column(String(32), nullable=True)
     enabled = Column(Boolean, default=True)
+    version = Column(Integer, default=1)      # 每次修改 +1
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class RunLog(Base):
+    """运行台账：一次节点执行一行，串起 谁/哪个项目/用了哪个模板/输入什么/产出什么"""
+    __tablename__ = "run_logs"
+    id = Column(String(32), primary_key=True, default=new_id)
+    # 谁 / 哪个项目（冗余名称：项目删除后统计仍可查）
+    user_id = Column(String(32), nullable=True, index=True)
+    username = Column(String(50), default="")
+    project_id = Column(String(32), nullable=True, index=True)
+    project_name = Column(String(200), default="")
+    # 节点
+    node_id = Column(String(32), nullable=True)
+    node_type = Column(String(30), default="")
+    node_subtype = Column(String(50), default="")
+    node_label = Column(String(120), default="")
+    # 触发与结果
+    trigger = Column(String(10), default="manual")   # manual / auto / retry
+    status = Column(String(12), default="ok")        # ok / failed / blocked / busy
+    error = Column(Text, default="")
+    # 输入（只存预览，全文在 revisions）
+    input_revision_id = Column(String(32), nullable=True)
+    input_chars = Column(Integer, default=0)
+    input_preview = Column(Text, default="")
+    # 本次生效参数快照
+    params = Column(JSONB, default=dict)
+    # 产出
+    output_revision_id = Column(String(32), nullable=True)
+    output_chars = Column(Integer, default=0)
+    output_preview = Column(Text, default="")
+    # 用量
+    model = Column(String(50), default="")
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
+    cost_est = Column(Float, default=0.0)
+    duration_ms = Column(Integer, default=0)
+    retries = Column(Integer, default=0)
+    queued_ms = Column(Integer, default=0)
+    # 模板溯源
+    template_key = Column(String(40), default="")
+    node_template_id = Column(String(32), nullable=True)
+    node_template_version = Column(Integer, default=0)
+    prompt_source = Column(String(16), default="")     # node / global / builtin / none
+    prompt_hash = Column(String(16), default="")
+    prompt_template_id = Column(String(32), nullable=True)
+    prompt_template_version = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class TemplateVersion(Base):
+    """模板版本快照：每次修改节点库/提示词模板追加一条，便于回看当时原文"""
+    __tablename__ = "template_versions"
+    id = Column(String(32), primary_key=True, default=new_id)
+    template_type = Column(String(10), default="")    # node / prompt
+    template_id = Column(String(32), nullable=False, index=True)
+    version = Column(Integer, default=1)
+    snapshot = Column(JSONB, default=dict)
+    changed_by = Column(String(50), default="")
+    note = Column(String(200), default="")             # 新建 / 编辑 / 回滚
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

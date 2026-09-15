@@ -106,3 +106,24 @@ async def resolve_prompt(db: AsyncSession, user: User | None, key: str) -> str |
     if not key:
         return None
     return (await effective_prompts(db, user)).get(key)
+
+
+async def resolve_prompt_detail(db: AsyncSession, key: str) -> dict:
+    """返回生效提示词及其来源，用于运行台账溯源
+
+    返回 {text, source, template_id, version}
+    source: global（全站模板）/ builtin（代码内置）
+    说明：用户个人模板与节点自定义提示词由调用方处理（node 级优先级最高）。
+    """
+    if not key:
+        return {"text": "", "source": "none", "template_id": None, "version": 0}
+    row = (await db.execute(
+        select(PromptTemplate).where(PromptTemplate.key == key,
+                                     PromptTemplate.scope == "global",
+                                     PromptTemplate.enabled.is_(True)).limit(1)
+    )).scalar_one_or_none()
+    if row and row.content:
+        return {"text": row.content, "source": "global", "template_id": row.id,
+                "version": int(row.version or 1)}
+    text = PROMPTS.get(key, "")
+    return {"text": text, "source": "builtin" if text else "none", "template_id": None, "version": 1}

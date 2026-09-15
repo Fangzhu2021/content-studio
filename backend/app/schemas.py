@@ -82,6 +82,7 @@ class ExecuteIn(BaseModel):
     revision_id: Optional[str] = None    # 指定输入 Revision（transform/exporter 选稿）
     action: Optional[str] = None         # reviewer: approve/reject
     comment: Optional[str] = None        # 审定意见
+    trigger: Optional[str] = None        # 台账口径: manual(手动) / auto(一键执行) / retry(重试)
 
 
 class ReviewIn(BaseModel):

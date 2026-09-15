@@ -151,6 +151,39 @@
 
 > 无外部推送：系统不调用任何平台发布 API，不设 PushLog；最终成稿由用户复制后到各平台后台人工发布，平台侧信息（已发链接等）可手填在 review_comment 或追加到导出记录。
 
+### RunLog (运行台账，一次节点执行 = 一行)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| user_id / username | str | 谁执行的（用户被删后仍保留用户名） |
+| project_id / project_name | str | 哪个项目（项目被删后解绑，保留名称以延续统计） |
+| node_id / node_type / node_subtype / node_label | str | 哪个节点 |
+| trigger | enum | manual 手动 / auto 一键执行 / retry 重试 |
+| status | enum | ok / failed / blocked（配额或排队拦截） / running |
+| error | text | 可读失败原因 |
+| input_revision_id / input_chars / input_preview | str/int/text | 输入快照（预览 500 字） |
+| output_revision_id / output_chars / output_preview | str/int/text | 生成物快照（预览 500 字） |
+| params | JSONB | 参数快照 + 生效提示词预览 |
+| model / prompt_tokens / completion_tokens / cost_est | str/int/float | 模型与成本 |
+| duration_ms / retries / queued_ms | int | 耗时、重试次数、排队时长 |
+| template_key | str(40) | 画布模板来源：standard_v1 / ai_review_v1 / blank |
+| node_template_id / node_template_version | str/int | 节点模板与其版本 |
+| prompt_source / prompt_hash / prompt_template_id / prompt_template_version | str | 生效提示词来自 node/global/builtin 及其指纹与版本 |
+| created_at | datetime | 默认保留 12 个月 |
+
+### TemplateVersion (模板版本快照)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| template_type | enum | node / prompt |
+| template_id | str | 对应 NodeTemplate / PromptTemplate 的主键 |
+| version | int | 第几版（新建=v1，每次保存 +1） |
+| snapshot | JSONB | 该版本的关键字段快照 |
+| changed_by / note | str | 修改人 / 新建或编辑 |
+| created_at | datetime | |
+
+> 正文只存 500 字预览，权威副本仍在 `revisions`；删除项目或用户时清空预览与参数快照但保留统计行，使"模板使用量、人均调用、成功率"等指标不出现断层。
+
 ---
 
 ## API 设计
@@ -194,6 +227,14 @@
 
 ### WebSocket
 - `WS /ws/{project_id}` — 节点状态实时推送
+
+### Admin（仅管理员）
+- `GET /api/admin/run-logs` — 运行台账列表（days / username / project_id / node_type / status / q / only_failed / 分页）
+- `GET /api/admin/run-logs/{id}` — 台账详情（输入输出预览、参数快照、生成物开头）
+- `GET /api/admin/run-logs/summary` — 台账统计（总量、成败、被拦截、按节点/按人/按模板/按天）
+- `GET /api/admin/run-logs/export.csv` — 导出 CSV（默认不含正文预览，`with_preview=true` 才带）
+- `POST /api/admin/run-logs/prune?months=12` — 按保留期归档清理
+- `GET /api/admin/template-versions` — 模板版本历史（节点库 / 提示词）
 
 ---
 

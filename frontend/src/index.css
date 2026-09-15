@@ -255,3 +255,34 @@ textarea.small { font-size: 13px; }
   background: #fef2f2; border: 1px solid #fca5a5; border-radius: 9px; padding: 8px 10px; margin: 8px 0; }
 .fail-banner .fail-text { color: #b91c1c; font-size: 12px; line-height: 1.5; min-width: 0; }
 .fail-banner button { flex: 0 0 auto; }
+
+/* 开关控件 */
+.switch { width: 46px; height: 26px; border-radius: 99px; background: #cbd5e1; border: none; padding: 0;
+  position: relative; cursor: pointer; transition: background .18s; flex: 0 0 auto; }
+.switch:hover:not(:disabled) { background: #94a3b8; }
+.switch.on { background: #16a34a; }
+.switch.on:hover:not(:disabled) { background: #15803d; }
+.switch:disabled { opacity: .6; cursor: not-allowed; }
+.switch .knob { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(15, 23, 42, .3); transition: left .18s; }
+.switch.on .knob { left: 23px; }
+
+/* 注册开关横条 */
+.reg-bar { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #e2e8f0;
+  border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+.reg-bar .reg-text { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.reg-bar .reg-text b { font-size: 14px; }
+
+/* 运行台账：详情弹窗与元信息 */
+.modal.wide-modal { width: 780px; max-width: 94vw; max-height: 86vh; overflow: auto; }
+.run-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: #475569;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.run-pre { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 10px 12px; font-size: 12px;
+  line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; margin: 4px 0 12px; }
+.modal label { display: block; margin-top: 6px; font-size: 12px; color: #475569; font-weight: 700; }
+.tbl .warn, .warn { color: #b45309; }
+
+/* 台账统计双栏 */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.two-col h4 { margin: 0 0 8px; font-size: 14px; }
+@media (max-width: 1100px) { .two-col { grid-template-columns: 1fr; } }

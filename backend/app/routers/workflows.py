@@ -3,17 +3,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import hashlib
+
 from ..ai import (AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, TOOL_KINDS, ai_review, rewrite,
                   tool_run, typeset)
 from ..pdf_tools import merge_blocks
 from ..audit import log as audit_log
 from ..concurrency import ai_slot
-from ..templates import effective_prompts, resolve_prompt
-from ..usage import ensure_quota, record_usage
+from ..templates import effective_prompts, resolve_prompt, resolve_prompt_detail
+from ..usage import (PRICE_IN_PER_MTOK, PRICE_OUT_PER_MTOK, ensure_quota,
+                     record_usage)
 from ..db import get_db
 from ..paths import UPLOAD_ROOT
 from ..deps import get_current_user
-from ..models import CanvasEdge, CanvasNode, Project, Revision, User
+from ..models import CanvasEdge, CanvasNode, NodeTemplate, Project, Revision, RunLog, User
 from ..schemas import ContentIn, EdgeCreate, ExecuteIn, NodeCreate, NodeUpdate, ReviewIn
 from ..ws import manager
 
@@ -312,8 +315,105 @@ async def review_revision(rid: str, body: ReviewIn, user: User = Depends(get_cur
 
 # ---------- 执行 ----------
 
-async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: User) -> dict:
-    """执行单个节点：rewriter/transformer → AI；reviewer → 审定；exporter → 成稿。"""
+
+
+# ---------------- 运行台账（run_logs）埋点 ----------------
+PREVIEW_CHARS = 500
+
+
+def _preview(text: str | None, n: int = PREVIEW_CHARS) -> str:
+    return (text or "").strip()[:n]
+
+
+def _short_hash(text: str | None) -> str:
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:8]
+
+
+async def _start_run(db: AsyncSession, user: User, node: CanvasNode, trigger: str) -> RunLog:
+    """执行开始即建一条台账（状态先为 running，便于后台看到正在跑的任务）"""
+    project = await db.get(Project, node.project_id)
+    tpl = (await db.execute(
+        select(NodeTemplate).where(NodeTemplate.kind == node.type, NodeTemplate.subtype == node.subtype,
+                                   NodeTemplate.scope == "global").limit(1)
+    )).scalar_one_or_none()
+    run = RunLog(
+        user_id=user.id, username=user.username, project_id=node.project_id,
+        project_name=(project.name if project else ""), node_id=node.id, node_type=node.type,
+        node_subtype=node.subtype, node_label=node.label or "", trigger=trigger, status="running",
+        template_key=((project.template_key or "") if project else ""),
+        node_template_id=(tpl.id if tpl else None),
+        node_template_version=(int(tpl.version or 1) if tpl else 0),
+    )
+    db.add(run)
+    return run
+
+
+async def _prompt_info(db: AsyncSession, key: str, cfg: dict) -> dict:
+    """本次实际生效的提示词来源（node > 全站模板 > 内置）"""
+    custom = (cfg or {}).get("prompt")
+    if custom:
+        return {"prompt_source": "node", "prompt_hash": _short_hash(custom), "prompt_preview": _preview(custom, 200)}
+    detail = await resolve_prompt_detail(db, key)
+    return {"prompt_source": detail["source"], "prompt_hash": _short_hash(detail["text"]),
+            "prompt_preview": _preview(detail["text"], 200),
+            "prompt_template_id": detail.get("template_id"),
+            "prompt_template_version": int(detail.get("version") or 0)}
+
+
+async def _finish_run(db: AsyncSession, run: RunLog | None, *, status: str = "ok", error: str = "",
+                      output: Revision | None = None, usage: dict | None = None, model: str = "",
+                      params: dict | None = None, prompt: dict | None = None) -> None:
+    if run is None:
+        return
+    run.status = status
+    run.error = (error or "")[:1000]
+    if output is not None:
+        run.output_revision_id = output.id
+        run.output_chars = len(output.content or "")
+        run.output_preview = _preview(output.content)
+    if model:
+        run.model = model
+    if usage:
+        run.prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        run.completion_tokens = int(usage.get("completion_tokens") or 0)
+        run.duration_ms = int(usage.get("duration_ms") or 0)
+        run.retries = int(usage.get("retries") or 0)
+        run.queued_ms = int(usage.get("queued_ms") or 0)
+        run.cost_est = round(run.prompt_tokens / 1_000_000 * PRICE_IN_PER_MTOK
+                             + run.completion_tokens / 1_000_000 * PRICE_OUT_PER_MTOK, 6)
+    merged = dict(params or {})
+    if prompt:
+        run.prompt_source = prompt.get("prompt_source") or ""
+        run.prompt_hash = prompt.get("prompt_hash") or ""
+        run.prompt_template_id = prompt.get("prompt_template_id")
+        run.prompt_template_version = int(prompt.get("prompt_template_version") or 0)
+        merged["prompt_preview"] = prompt.get("prompt_preview", "")
+    if merged:
+        run.params = {**(run.params or {}), **merged}
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+
+def _run_input(run: RunLog | None, rev: Revision | None, params: dict | None = None) -> None:
+    if run is None:
+        return
+    if rev is not None:
+        run.input_revision_id = rev.id
+        run.input_chars = len(rev.content or "")
+        run.input_preview = _preview(rev.content)
+    if params:
+        run.params = {**(run.params or {}), **params}
+
+
+async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: User,
+                    trigger: str = "manual") -> dict:
+    """执行单个节点：rewriter/transformer → AI；reviewer → 审定；exporter → 成稿。
+
+    trigger 为台账口径：manual 手动点击 / auto 一键执行 / retry 重试。
+    """
+    run = await _start_run(db, user, node, trigger)
     await set_status(db, node, "running")
     try:
         if node.type in REWRITEABLE:
@@ -324,6 +424,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             if not src or not (src.content or "").strip():
                 raise HTTPException(400, "缺少上游稿件内容，请先填写草稿并执行上游节点")
             cfg = node.config or {}
+            _run_input(run, src, {"kind": "rewrite", "style_chars": len(style_hint or "")})
+            _pinfo = await _prompt_info(db, node.subtype, cfg)
             async with ai_slot(db, user) as waited:
                 await _queued_notice(node, waited)
                 text, model, usage = await rewrite(
@@ -343,6 +445,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             db.add(rev)
             await db.commit()
             await set_status(db, node, "done")
+            await _finish_run(db, run, output=rev, model=model, prompt=_pinfo,
+                              usage={**usage, "queued_ms": int((waited or 0) * 1000)})
             return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model,
                     "retries": int(usage.get("retries") or 0), "queued_ms": int((waited or 0) * 1000)}
 
@@ -359,6 +463,11 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                 title, content = merge_blocks(blocks, indexes)
                 if not content.strip():
                     raise HTTPException(400, "所选版块没有可用的文字内容")
+                if run is not None:
+                    run.params = {"kind": kind, "blocks": len(indexes),
+                                  "selected": list(indexes)[:80],
+                                  "file": (info.get("filename") or "")[:200]}
+                    run.input_preview = _preview(info.get("filename") or "PDF 就地解析")
                 rev = Revision(project_id=node.project_id, node_id=node.id,
                                title=title, content=content, format_type="pdf_extract",
                                status="rewritten", model="pdf-parse")
@@ -366,6 +475,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                 await db.commit()
                 await db.refresh(rev)
                 await set_status(db, node, "done")
+                await _finish_run(db, run, output=rev, model="pdf-parse",
+                                  params={"kind": kind, "chars": len(content), "blocks": len(indexes)})
                 return {"node_id": node.id, "status": "done", "revision_id": rev.id,
                         "kind": kind, "chars": len(content), "blocks": len(indexes)}
 
@@ -384,6 +495,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                     ratio = float(cfg.get("ratio")) if cfg.get("ratio") else 0.35
                 except Exception:
                     ratio = 0.35
+            _run_input(run, src, {"kind": kind, "ratio": ratio})
+            _pinfo = await _prompt_info(db, kind, cfg)
             async with ai_slot(db, user) as waited:
                 await _queued_notice(node, waited)
                 text, model, usage = await tool_run(kind, src.title or "", src.content,
@@ -397,6 +510,9 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             db.add(rev)
             await db.commit()
             await set_status(db, node, "done")
+            await _finish_run(db, run, output=rev, model=model, prompt=_pinfo,
+                              params={"kind": kind, "ratio": ratio},
+                              usage={**usage, "queued_ms": int((waited or 0) * 1000)})
             return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model,
                     "kind": kind, "chars": len(text),
                     "retries": int(usage.get("retries") or 0), "queued_ms": int((waited or 0) * 1000)}
@@ -404,6 +520,11 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
         if node.type == "reviewer":
             pending = [r for r in await upstream_revisions(db, node)
                        if r.status in ("rewritten", "reviewed") and not _is_style(r)]
+            if run is not None:
+                run.input_chars = sum(len(r.content or "") for r in pending)
+                run.input_preview = _preview(pending[0].content) if pending else ""
+                run.params = {"count": len(pending), "action": body.action,
+                              "revision_ids": [r.id for r in pending][:50]}
             if body.action == "approve":
                 for r in pending:
                     r.status = "approved"
@@ -411,6 +532,7 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                         r.review_comment = body.comment
                 await db.commit()
                 await set_status(db, node, "approved")
+                await _finish_run(db, run, params={"action": "approve", "count": len(pending)})
                 return {"node_id": node.id, "status": "approved", "count": len(pending), "action": "approve"}
             if body.action == "reject":
                 for r in pending:
@@ -418,9 +540,11 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                     r.review_comment = body.comment or "被打回，请修改"
                 await db.commit()
                 await set_status(db, node, "done")
+                await _finish_run(db, run, params={"action": "reject", "count": len(pending)})
                 return {"node_id": node.id, "status": "done", "count": len(pending), "action": "reject"}
             # 无 action：人工节点，返回待审数量
             await set_status(db, node, "done")
+            await _finish_run(db, run, params={"action": "query", "pending": len(pending)})
             return {"node_id": node.id, "status": "waiting", "pending": len(pending), "action": None}
 
         if node.type == "ai_reviewer":
@@ -429,9 +553,14 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                        if r.status in ("rewritten", "reviewed") and not _is_style(r)]
             if not pending:
                 await set_status(db, node, "done")
+                await _finish_run(db, run, params={"pending": 0})
                 return {"node_id": node.id, "status": "waiting", "pending": 0,
                         "message": "没有待审稿件（上游需先执行改写）"}
             cfg = node.config or {}
+            if run is not None:
+                run.input_chars = sum(len(r.content or "") for r in pending)
+                run.input_preview = _preview(pending[0].content) if pending else ""
+            _pinfo = await _prompt_info(db, "ai_review", cfg)
             reviews, passed_cnt = [], 0
             total = {"prompt_tokens": 0, "completion_tokens": 0, "duration_ms": 0,
                      "prompt_chars": 0, "output_chars": 0}
@@ -459,6 +588,15 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             await record_usage(db, user=user, kind="ai_review", model=last_model,
                                project_id=node.project_id, node_id=node.id, **_usage_kwargs(total))
             await set_status(db, node, "approved" if passed_cnt == len(pending) else "done")
+            if run is not None:
+                summary = "；".join(f"{r['revision_id'][:8]}:{'通过' if r['passed'] else '退回'} {r['comment']}"
+                                   for r in reviews)
+                run.output_preview = _preview(summary)
+                run.output_chars = len(summary)
+            await _finish_run(db, run, model=last_model, prompt=_pinfo,
+                              params={"count": len(pending), "passed": passed_cnt,
+                                      "strict": bool(cfg.get("strict"))},
+                              usage={**total, "queued_ms": queued_ms})
             return {"node_id": node.id, "status": "approved" if passed_cnt == len(pending) else "done",
                     "count": len(pending), "passed": passed_cnt, "reviews": reviews,
                     "retries": retries_total, "queued_ms": queued_ms}
@@ -473,12 +611,17 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             export_key = f"export_{node.subtype}" if node.subtype else ""
             prompt = cfg.get("prompt") or (await resolve_prompt(db, user, export_key) if export_key else None)
 
+            _run_input(run, src, {"export": node.subtype or "", "typeset": bool(prompt)})
+            _pinfo = await _prompt_info(db, export_key or "", cfg)
+
             if not prompt:
                 # 无排版提示词 → 保持"直接成稿"（不调用 AI，不消耗额度）
                 src.status = "finalized"
                 src.review_comment = body.comment or src.review_comment
                 await db.commit()
                 await set_status(db, node, "done")
+                await _finish_run(db, run, output=src, prompt=_pinfo,
+                                  params={"export": node.subtype or "", "typeset": False})
                 return {"node_id": node.id, "status": "done", "revision_id": src.id,
                         "format_type": src.format_type, "typeset": False}
 
@@ -499,6 +642,9 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             await db.commit()
             await db.refresh(rev)
             await set_status(db, node, "done")
+            await _finish_run(db, run, output=rev, model=model, prompt=_pinfo,
+                              params={"export": node.subtype or "", "typeset": True},
+                              usage={**usage, "queued_ms": int((waited or 0) * 1000)})
             return {"node_id": node.id, "status": "done", "revision_id": rev.id,
                     "format_type": rev.format_type, "typeset": True, "model": model,
                     "chars": len(text), "retries": int(usage.get("retries") or 0),
@@ -506,14 +652,20 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
 
         # draft_input
         await set_status(db, node, "done")
+        await _finish_run(db, run, params={"kind": "draft_input"})
         return {"node_id": node.id, "status": "done", "message": "草稿节点：请在上方配置面板编辑内容"}
     except HTTPException as exc:
         # 把可读原因（配额不足/缺上游/文件未上传等）写入节点并实时推送，前端才能显示真实原因
         detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
         await set_status(db, node, "failed", detail)
+        # 429 = 配额/排队被拦截，与真实故障分开统计
+        await _finish_run(db, run, status=("blocked" if exc.status_code == 429 else "failed"),
+                          error=detail, params={"http_status": exc.status_code,
+                                                "action": (body.action or "")})
         raise
     except Exception as exc:  # noqa: BLE001
         await set_status(db, node, "failed", str(exc))
+        await _finish_run(db, run, status="failed", error=str(exc))
         raise HTTPException(500, f"执行失败: {exc}")
 
 
@@ -522,7 +674,9 @@ async def execute_node(nid: str, body: ExecuteIn | None = None, user: User = Dep
                        db: AsyncSession = Depends(get_db)):
     node = await _owned_node(db, nid, user)
     try:
-        result = await _run_node(db, node, body or ExecuteIn(), user)
+        payload = body or ExecuteIn()
+        trigger = payload.trigger if payload.trigger in ("manual", "auto", "retry") else "manual"
+        result = await _run_node(db, node, payload, user, trigger=trigger)
     except Exception as exc:
         await audit_log(db, action="node_execute_failed", user=user, target_type="node", target_id=nid,
                         detail={"type": node.type, "subtype": node.subtype, "error": str(exc)[:200]})
@@ -561,7 +715,7 @@ async def execute_project(pid: str, user: User = Depends(get_current_user), db: 
                             "message": "审定节点需人工操作"})
             continue
         try:
-            r = await _run_node(db, node, ExecuteIn(), user)
+            r = await _run_node(db, node, ExecuteIn(), user, trigger="auto")
             results.append({"node_id": nid, "label": node.label, "status": r.get("status"), "message": ""})
         except Exception as exc:  # noqa: BLE001
             results.append({"node_id": nid, "label": node.label, "status": "failed", "message": str(exc)})

@@ -144,6 +144,7 @@
 | 用户管理 | 列表/搜索、角色分配、启用禁用、重置密码、配额调整、邀请码生成与作废 |
 | 项目管理 | 全局项目列表（归属、节点数、稿件数、最近活动）、转移归属、删除（进回收站）、打包导出 |
 | 用量看板 | 按用户/项目/天统计、趋势、Top 消耗、CSV 导出 |
+| 运行台账（已实现） | 每次节点执行一行：用户、项目、节点、触发方式、状态、模型、输入/生成物预览、参数快照、token/费用/耗时、模板与提示词版本；支持筛选、详情、统计、CSV 导出、按保留期归档 |
 | 审计查询 | 按人/时间/动作/目标筛选 |
 | 模板管理（P2） | 节点模板与提示词模板 CRUD、可见范围、版本与启用开关 |
 | 系统设置 | 注册开关、默认模型、默认提示词与严格模式、平台可见性、并发与配额默认值 |
@@ -152,6 +153,21 @@
 - 后端 `/api/admin/*` 统一 `require_role("admin")` 依赖；管理操作全部写审计
 - 前端 `/admin` 独立路由与布局，仅管理员可见入口
 - 危险操作二次确认 + 操作原因填写（写入审计）
+
+### 6.1 运行台账的数据设计（已落地）
+
+`run_logs` 一行 = 一次节点执行，回答四个问题：
+
+| 问题 | 字段 |
+|---|---|
+| 谁、什么时候、在哪个项目 | `user_id` / `username` / `project_id` / `project_name` / `created_at` |
+| 用了哪个模板、怎么触发的 | `node_template_id` / `node_template_version` / `node_label` / `node_type` / `node_subtype` / `template_key` / `trigger` |
+| 输入了什么、生成了什么 | `input_chars` / `input_preview`(500 字) / `output_chars` / `output_preview`(500 字) / `params` |
+| 花了多少、成没成 | `status`(`ok`/`failed`/`blocked`/`running`) / `error` / `model` / `prompt_tokens` / `completion_tokens` / `cost_est` / `duration_ms` / `retries` / `queued_ms` |
+
+配套 `template_versions` 表存模板快照（`version` + `snapshot`），因此"当时的提示词长什么样"可回溯；`prompt_source` / `prompt_hash` 记录本次**实际生效**的提示词来自节点自定义、全站模板还是系统内置。
+
+**口径约定**：成功、失败、被配额拦截全部入库；正文只存 500 字预览，权威副本仍在 `revisions`；仅管理员可见；删除项目或用户时保留统计行、清空正文预览与参数快照；默认保留 12 个月，可一键归档清理。
 
 ---
 
