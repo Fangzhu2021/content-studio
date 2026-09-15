@@ -70,7 +70,7 @@ function Login() {
         <div className="login-hint">
           {mode === 'register' && regMode && regMode.invite_required
             ? '内部系统：注册需管理员发放的邀请码'
-            : '部署于 YOUR_SERVER_IP · DeepSeek AI 驱动'}
+            : '部署于 YOUR_SERVER_IP · AI 模型驱动'}
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { errText, useStore, type FlowNode } from './store'
 import { FORMATS, STATUS_TEXT, TYPE_META } from './types'
+import { modelAlias, modelLabel, modelOptionLabel } from './labels'
 import type { Revision } from './types'
 
 let promptDefaults: { prompts: Record<string, string>; labels: Record<string, string>; models: string[] } | null = null
@@ -90,7 +91,7 @@ function chips(rev: Revision | null) {
     <div className="meta-chips">
       <span className={`chip st-${rev.status}`}>{STATUS_TEXT[rev.status] || rev.status}</span>
       <span className="chip">{FORMATS[rev.format_type] || rev.format_type || '原始'}</span>
-      {rev.model ? <span className="chip">{rev.model}</span> : null}
+      {rev.model ? <span className="chip">{modelLabel(rev.model)}</span> : null}
     </div>
   )
 }
@@ -170,9 +171,9 @@ function DraftPanel({ node }: { node: FlowNode }) {
 function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string }) {
   const [show, setShow] = useState(false)
   const [draft, setDraft] = useState('')
-  const [model, setModel] = useState('deepseek-chat')
+  const [model, setModel] = useState('standard')
   const [defaultPrompt, setDefaultPrompt] = useState('')
-  const [models, setModels] = useState<string[]>(['deepseek-chat', 'deepseek-reasoner'])
+  const [models, setModels] = useState<string[]>(['standard', 'reasoner'])
   const [saved, setSaved] = useState(false)
   const [myList, setMyList] = useState<{ id: string; key: string; name: string; content: string }[]>([])
   const [minePick, setMinePick] = useState('')
@@ -202,7 +203,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
 
   const cfg = (node.data.config || {}) as Record<string, any>
   const custom = !!(cfg.prompt && String(cfg.prompt).trim())
-  const effectiveModel = cfg.model ? String(cfg.model) : 'deepseek-chat'
+  const effectiveModel = modelAlias(cfg.model)
 
   useEffect(() => {
     void (async () => {
@@ -219,7 +220,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
     if (!defaultPrompt || initRef.current === key) return
     initRef.current = key
     setDraft(cfg.prompt ? String(cfg.prompt) : defaultPrompt)
-    setModel(cfg.model ? String(cfg.model) : 'deepseek-chat')
+    setModel(modelAlias(cfg.model))
   }, [defaultPrompt, node.id, defaultKey, cfg.prompt, cfg.model])
 
   useEffect(() => { setSaved(false); void loadMine() }, [node.id])
@@ -233,14 +234,14 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
     const sameAsDefault = !trimmed || trimmed === (defaultPrompt || '').trim()
     if (sameAsDefault) delete nextCfg.prompt
     else nextCfg.prompt = nextPrompt
-    if (nextModel && nextModel !== 'deepseek-chat') nextCfg.model = nextModel
+    if (nextModel && nextModel !== 'standard') nextCfg.model = nextModel
     else delete nextCfg.model
     try {
       const updated = await api.updateNode(node.id, { config: nextCfg })
       useStore.getState().syncNode(node.id, { config: (updated as any).config || nextCfg })
       if (resetToDefault || sameAsDefault) {
         setDraft(defaultPrompt)
-        setModel(nextModel || 'deepseek-chat')
+        setModel(modelAlias(nextModel))
       }
       useStore.getState().toastMsg(sameAsDefault
         ? '已恢复为系统默认提示词（编辑器保留默认文本）'
@@ -258,11 +259,11 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
       </div>
       {show ? (
         <>
-          <label>模型档位</label>
+          <label>AI 模型档位</label>
           <select value={model} onChange={(e) => setModel(e.target.value)}>
             {models.map((m) => (
               <option key={m} value={m}>
-                {m === 'deepseek-reasoner' ? 'deepseek-reasoner（深度思考，更慢更细）' : 'deepseek-chat（默认，推荐）'}
+                {modelOptionLabel(m)}
               </option>
             ))}
           </select>
@@ -270,7 +271,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
           <textarea className="rev-content" rows={10} value={draft} onChange={(e) => setDraft(e.target.value)} />
           <div className="btn-row">
             <button className="primary" onClick={() => save(draft, model)}>💾 保存提示词</button>
-            <button onClick={() => save('', 'deepseek-chat', true)}>↺ 恢复默认</button>
+            <button onClick={() => save('', 'standard', true)}>↺ 恢复默认</button>
             <button onClick={() => setDraft(defaultPrompt)}>⤵ 重新载入默认模板</button>
           </div>
           <label>我的模板（个人库，载入后可保存到本节点）</label>
@@ -304,7 +305,7 @@ function AiPanel({ node }: { node: FlowNode }) {
     setBusy(true)
     try {
       const r: any = await api.executeNode(node.id, isRetry ? { trigger: 'retry' } : {})
-      useStore.getState().toastMsg(`执行完成（${r.model || ''}）${execExtra(r)}`)
+      useStore.getState().toastMsg(`执行完成（${modelLabel(r.model)}）${execExtra(r)}`)
       useStore.getState().syncNode(node.id, { status: 'done' })
       await reload()
     } catch (e) {
@@ -502,7 +503,7 @@ function ExportPanel({ node }: { node: FlowNode }) {
           <div className="meta-chips">
             <span className={`chip st-${preview.status}`}>{preview.status === 'finalized' ? '已成稿' : (STATUS_TEXT[preview.status] || preview.status)}</span>
             <span className="chip">{FORMATS[preview.format_type] || preview.format_type}</span>
-            {preview.model ? <span className="chip">{preview.model}</span> : null}
+            {preview.model ? <span className="chip">{modelLabel(preview.model)}</span> : null}
             <span className="chip">{preview.content?.length || 0} 字</span>
           </div>
           <div className="rev-title">{preview.title || '（无标题）'}</div>

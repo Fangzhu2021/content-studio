@@ -39,6 +39,33 @@ FORMAT_LABELS = {
 DEFAULT_MODEL = "deepseek-chat"
 AVAILABLE_MODELS = ["deepseek-chat", "deepseek-reasoner"]
 
+# 对外（前端、接口、界面文案）只暴露中性别名，避免把模型厂商暴露给使用者。
+# 别名在后端解析为真实模型名，旧数据里存的真实模型名也继续兼容。
+MODEL_ALIASES = {"standard": "deepseek-chat", "reasoner": "deepseek-reasoner"}
+PUBLIC_MODELS = ["standard", "reasoner"]      # 前端下拉只看到这两个
+
+
+PUBLIC_BY_MODEL = {v: k for k, v in MODEL_ALIASES.items()}
+
+
+def public_model(model: str | None) -> str:
+    """接口输出用：把内部真实模型名折算为对外别名，接口 JSON 里也不出现厂商型号。"""
+    name = (model or "").strip()
+    if not name:
+        return ""
+    if name in MODEL_ALIASES:
+        return name
+    return PUBLIC_BY_MODEL.get(name, name)
+
+
+def resolve_model(model: str | None) -> str:
+    """把界面别名 / 旧的真实模型名统一解析为后端可用的模型名。"""
+    name = (model or "").strip()
+    if not name:
+        return DEFAULT_MODEL
+    name = MODEL_ALIASES.get(name, name)
+    return name if name in AVAILABLE_MODELS else DEFAULT_MODEL
+
 
 async def rewrite(format_type: str, content: str, title: str = "",
                   custom_prompt: str | None = None, model: str | None = None,
@@ -47,20 +74,18 @@ async def rewrite(format_type: str, content: str, title: str = "",
 
     - custom_prompt：节点级自定义提示词（node.config.prompt），为空则用该格式的默认模板
     - model：节点级模型档位（node.config.model），默认 deepseek-chat
-    - 未配置 DEEPSEEK_API_KEY 时走 mock，保证流程可演示
+    - 未配置 AI Key 时走 mock，保证流程可演示
     """
     s = get_settings()
     if not s.deepseek_api_key:
         text = _mock_rewrite(format_type, content, title)
-        return text, "mock(未配置Key)", _zero_usage(len(content or ""), len(text))
+        return text, "mock", _zero_usage(len(content or ""), len(text))
     prompt = (custom_prompt or "").strip() or PROMPTS.get(format_type)
     if not prompt:
         raise ValueError(f"不支持的格式: {format_type}")
     if style_hint and style_hint.strip():
         prompt = prompt + "\n\n【参考风格要求（由「风格提取」节点提供，请一并遵循）】\n" + style_hint.strip()
-    use_model = (model or "").strip() or DEFAULT_MODEL
-    if use_model not in AVAILABLE_MODELS:
-        use_model = DEFAULT_MODEL
+    use_model = resolve_model(model)
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": f"标题/主题：{title or '（无）'}\n\n素材内容：\n{content}"},
@@ -100,7 +125,7 @@ def _mock_rewrite(format_type: str, content: str, title: str) -> str:
         return f"【头条新闻 · 模拟模式】\n{title}\n\n{body}\n\n（来源：云阳县融媒体中心）"
     # wechat / 兜底
     return (f"【{label} · 模拟模式】\n# {title}\n\n{body}\n\n"
-            f"---\n（模拟模式：请在 backend/.env 配置 DEEPSEEK_API_KEY 后获得真实 AI 改写）")
+            f"---\n（模拟模式：后端尚未配置 AI Key，配置后即为真实改写结果）")
 
 # ---------------- AI 审稿 ----------------
 REVIEW_PROMPT = (
@@ -125,11 +150,9 @@ async def ai_review(title: str, content: str,
     """AI 审稿：返回 (是否通过, 审稿意见, 模型名)。无 Key 时模拟通过。"""
     s = get_settings()
     if not s.deepseek_api_key:
-        return True, "【模拟模式】未配置 DeepSeek Key，默认通过。", "mock(未配置Key)", _zero_usage(len(content or ""), 0)
+        return True, "【模拟模式】后端尚未配置 AI Key，默认通过。", "mock", _zero_usage(len(content or ""), 0)
     prompt = (custom_prompt or "").strip() or REVIEW_PROMPT
-    use_model = (model or "").strip() or DEFAULT_MODEL
-    if use_model not in AVAILABLE_MODELS:
-        use_model = DEFAULT_MODEL
+    use_model = resolve_model(model)
     payload = {
         "model": use_model,
         "messages": [
@@ -250,11 +273,9 @@ async def tool_run(kind: str, title: str, content: str,
     s = get_settings()
     if not s.deepseek_api_key:
         text = _mock_tool(kind, title, content)
-        return text, "mock(未配置Key)", _zero_usage(len(content or ""), len(text))
+        return text, "mock", _zero_usage(len(content or ""), len(text))
     prompt = (custom_prompt or "").strip() or PROMPTS[kind]
-    use_model = (model or "").strip() or DEFAULT_MODEL
-    if use_model not in AVAILABLE_MODELS:
-        use_model = DEFAULT_MODEL
+    use_model = resolve_model(model)
     if kind == "condense" and ratio:
         try:
             pct = max(10, min(90, int(float(ratio) * 100)))
@@ -300,7 +321,7 @@ def _mock_tool(kind: str, title: str, content: str) -> str:
                 "【二、报道框架】预热期 / 活动期 / 收尾期……\n"
                 "【三、稿件清单】……\n【四、采访提纲】……\n【五、人员与分工】……\n"
                 "【六、物料与素材清单】……\n【七、风险与预案】……\n【八、需要核实的信息】……\n"
-                "（模拟模式：配置 DeepSeek Key 后输出完整报道方案）")
+                "（模拟模式：配置 AI Key 后输出完整报道方案）")
     if kind == "topic_plan":
         return ("【选题一】" + (title or "素材主线") + "的现场直击\n"
                 "· 核心角度：以现场细节切入……\n"
@@ -308,12 +329,12 @@ def _mock_tool(kind: str, title: str, content: str) -> str:
                 "· 采访对象与必问问题：……\n"
                 "· 呈现形式与发布平台：……\n"
                 "· 时效与风险提示：……\n"
-                "（模拟模式：配置 DeepSeek Key 后输出完整策划方案）")
+                "（模拟模式：配置 AI Key 后输出完整策划方案）")
     if kind == "condense":
         keep = body[: max(60, int(len(body) / 3))]
         return f"【精简稿 · 模拟模式】\n{title}\n\n{keep}……"
     return ("【风格提示词 · 模拟模式】\n你是一位语言平实、结构清晰的新闻编辑："
-            "开篇直陈核心事实，中段按时间顺序展开，多用短句，结尾给出明确结论。（配置 DeepSeek Key 后为真实提炼结果）")
+            "开篇直陈核心事实，中段按时间顺序展开，多用短句，结尾给出明确结论。（配置 AI Key 后为真实提炼结果）")
 
 async def _compress_to(text: str, target: int, model: str, api_key: str, base_url: str) -> str:
     """二次压缩：把 text 压到不超过 target 个字符（模型首轮往往删得不够）。"""
@@ -374,7 +395,7 @@ def _friendly_error(reason: str, attempts: int) -> str:
     if "超时" in reason or "timeout" in reason.lower():
         return f"AI 服务响应超时{tail}，请稍后重试"
     if "网络" in reason:
-        return f"无法连接 AI 服务{tail}，请检查服务器外网与 .env 中的 DEEPSEEK_BASE_URL"
+        return f"无法连接 AI 服务{tail}，请联系管理员检查服务器外网与 AI 服务地址配置"
     return f"AI 服务暂时不可用{tail}：{reason}"
 
 
@@ -391,7 +412,7 @@ async def _post_chat(url: str, payload: dict, headers: dict) -> tuple[str, dict]
             if resp.status_code >= 500:
                 raise _Retryable(f"HTTP {resp.status_code}")
             if resp.status_code in (401, 403):
-                raise AIError("AI Key 无效或无权限，请检查后端 .env 中的 DEEPSEEK_API_KEY")
+                raise AIError("AI 服务密钥无效或无权限，请联系管理员检查后端 AI Key 配置")
             if resp.status_code >= 400:
                 raise AIError(f"AI 请求被拒绝（HTTP {resp.status_code}）：{resp.text[:120]}")
             data = resp.json()
@@ -502,11 +523,9 @@ async def typeset(subtype: str, title: str, content: str,
     s = get_settings()
     key = f"export_{subtype}"
     if not s.deepseek_api_key:
-        return _mock_typeset(subtype, title, content), "mock(未配置Key)", _zero_usage(len(content or ""), len(content or ""))
+        return _mock_typeset(subtype, title, content), "mock", _zero_usage(len(content or ""), len(content or ""))
     prompt = (custom_prompt or "").strip() or PROMPTS.get(key) or PROMPTS.get("wechat")
-    use_model = (model or "").strip() or DEFAULT_MODEL
-    if use_model not in AVAILABLE_MODELS:
-        use_model = DEFAULT_MODEL
+    use_model = resolve_model(model)
     payload = {
         "model": use_model,
         "messages": [
@@ -539,5 +558,5 @@ def _mock_typeset(subtype: str, title: str, content: str) -> str:
         return (f'<h1 style="font-size:22px;font-weight:700;text-align:center;margin:0 0 16px;color:#222;">{title}</h1>'
                 f'{paras}'
                 '<p style="font-size:14px;color:#888;text-align:center;margin-top:24px;">'
-                '（模拟模式输出 · 配置 DeepSeek Key 后为真实排版）</p>')
+                '（模拟模式输出 · 配置 AI Key 后为真实排版）</p>')
     return f"{title}\n\n{body}"

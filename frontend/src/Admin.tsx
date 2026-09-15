@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { errText, useStore } from './store'
+import { modelLabel } from './labels'
 
 type Tab = 'overview' | 'runlogs' | 'users' | 'projects' | 'usage' | 'audit' | 'templates' | 'settings'
 
@@ -298,7 +299,7 @@ export default function AdminApp() {
                       : r.status === 'blocked' ? <span className="warn">已拦截</span>
                       : r.status === 'running' ? <span className="dim">运行中</span>
                       : <span className="danger">失败</span>}</td>
-                    <td>{r.model || '-'}</td>
+                    <td>{modelLabel(r.model)}</td>
                     <td>{r.input_chars} → {r.output_chars}</td>
                     <td>{r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + 's' : '-'}{r.queued_ms ? <span className="dim"> (排队 {Math.round(r.queued_ms / 1000)}s)</span> : null}</td>
                     <td>{r.prompt_tokens}+{r.completion_tokens}{r.retries ? <span className="warn"> ↻{r.retries}</span> : null}</td>
@@ -754,7 +755,7 @@ export default function AdminApp() {
             </p>
             <div className="run-meta">
               <span>触发：{{ manual: '手动点击', auto: '一键执行', retry: '重试' }[runDetail.trigger as string] || runDetail.trigger}</span>
-              <span>模型：{runDetail.model || '-'}</span>
+              <span>模型：{modelLabel(runDetail.model)}</span>
               <span>token：{runDetail.prompt_tokens}+{runDetail.completion_tokens}</span>
               <span>耗时：{runDetail.duration_ms}ms{runDetail.queued_ms ? `（排队 ${runDetail.queued_ms}ms）` : ''}</span>
               <span>重试：{runDetail.retries}</span>

@@ -9,17 +9,25 @@ from ..paths import UPLOAD_ROOT
 from ..deps import get_current_user
 from ..runlog import clear_project_previews
 from ..models import CanvasEdge, CanvasNode, Project, Revision, User
-from ..ai import FORMAT_LABELS  # noqa: F401  预留
+from ..ai import FORMAT_LABELS, public_model  # noqa: F401  预留
 from ..schemas import ProjectCreate, ProjectUpdate
 
 router = APIRouter()
+
+
+def _public_config(cfg: dict | None) -> dict:
+    """模型档位对外折算为别名（standard/reasoner），界面与接口 JSON 都不出现厂商型号。"""
+    out = dict(cfg or {})
+    if out.get("model"):
+        out["model"] = public_model(str(out["model"]))
+    return out
 
 
 def _node_out(n: CanvasNode) -> dict:
     return {
         "id": n.id, "type": n.type, "subtype": n.subtype, "label": n.label,
         "position": {"x": n.position_x or 0, "y": n.position_y or 0},
-        "config": n.config or {}, "status": n.status or "idle", "error": n.error or "",
+        "config": _public_config(n.config), "status": n.status or "idle", "error": n.error or "",
     }
 
 

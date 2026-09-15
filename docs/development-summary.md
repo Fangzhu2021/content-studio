@@ -614,3 +614,29 @@ cd /path/to/content-studio/backend
 **修法**：新增 `.runlog-bar` 作用域样式，下拉框改 `width: auto` 并把字号收到 13px（实测 89 / 116 / 90 px），关键字框定宽 210px；按钮选择器限定 `button:not(.switch)`，避免把「仅看失败」开关的 46×26 造型一起覆盖；整行控件不再换行（窄屏仍保留 `flex-wrap` 兜底）。
 
 **验证**：1500px 与 1280px 两种窗口宽度各测 9 项全 PASS —— 三个下拉框同一行、最大 116px（此前约 1254px 整行宽）、关键字框与开关同行、开关样式未被破坏、整行所有控件纵向偏差仅 3px、无溢出容器、控制台 0 错误。
+
+### 16.1 界面统一显示「AI 模型」：不把模型厂商暴露给使用者（提交 `920d7c3`）
+
+**需求**："修改系统中前端的 deepseek 标签，统一修改为 AI 模型，我不希望用户看到 deepseek。"
+
+**做法**：对外（界面 + 接口 JSON）只出现中性别名，厂商名与型号只保留在后端内部实现里。
+
+| 层 | 改动 |
+|---|---|
+| 前端 | 新增 `frontend/src/labels.ts`：`modelAlias()` 把任意模型值折算为 `standard` / `reasoner` / `mock`，`modelLabel()` 一律输出「AI 模型 · 标准」「AI 模型 · 深度思考」「模拟模式」，`modelOptionLabel()` 提供下拉文案 |
+| 下拉框 | 选项改为「标准（默认，推荐）」「深度思考（更慢更细，适合长稿）」，标签改为「AI 模型档位」，选项 value 用别名 |
+| 其它显示点 | 稿件 chip、执行完成提示、提示词编辑器里的当前档位、管理后台台账列表「模型」列与详情、CSV 导出，全部走 `modelLabel()` |
+| 登录页 | 标语「DeepSeek AI 驱动」→「AI 模型驱动」 |
+| 后端 | 新增 `MODEL_ALIASES` / `PUBLIC_MODELS` / `resolve_model()` / `public_model()`：入参把别名解析为真实模型名，出参把真实模型名折算为别名 |
+| 接口出参 | `/api/prompts` 只返回 `["standard","reasoner"]`；节点配置（画布/项目接口）、稿件、执行结果、审稿结论、后台台账与 CSV 的 `model` 字段统一折算 |
+| 文案 | mock 输出说明、连接失败与 Key 无效提示去掉厂商名；AI 审稿批注 `[AI审稿·型号]` → `[AI审稿]` |
+| 兼容 | 历史节点配置里存过的真实模型名仍可正常执行（`resolve_model` 兜底），接口输出时折算为别名 |
+| 数据清理 | 清理历史稿件里 3 条 `[AI审稿·…]` 批注与 1 条旧 mock 说明 |
+
+**验证**（全部 PASS）
+- 接口扫描 25 项：`/prompts`、项目列表、4 个项目画布、执行结果、节点稿件、稿件历史、后台台账/统计/节点模板/提示词模板/用户/概览/用量、CSV 导出 —— 响应文本均不含厂商名；`/prompts` 模型档位为 `['standard','reasoner']`
+- 历史遗留兼容：把节点配置写成真实模型名 → 接口输出 `config.model = "standard"`，执行成功且返回 `model: "standard"`
+- 浏览器扫描 15 个页面视图（登录页、工作台含节点面板与提示词设置、管理后台 8 个功能区、台账详情弹窗）：正文 `innerText` 与 DOM 源码均不含厂商名；模型下拉文案为「标准 / 深度思考」；稿件 chip 显示「AI 模型 · 标准」；台账「模型」列显示「AI 模型 · 标准」；控制台 0 错误
+- 数据库复查：`revisions.review_comment` / `content`、`audit_logs.detail`、`canvas_nodes.error/config`、`prompt_templates.content`、`node_templates.prompt`、`run_logs.error/params` 中厂商名出现次数均为 0
+
+> 说明：`backend/app/config.py` 的环境变量名、`ai.py` 里的真实模型名与代码注释仍保留原始命名，属于后端内部实现，不会出现在任何界面、接口响应或前端打包产物中（前端源码与 `dist` 产物已确认为 0 命中）。

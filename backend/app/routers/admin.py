@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..ai import public_model
 from ..audit import get_setting, log as audit_log, set_setting
 from ..db import get_db
 from ..paths import UPLOAD_ROOT
@@ -474,7 +475,7 @@ def _run_log_out(r: RunLog, detail: bool = False) -> dict:
         "node_id": r.node_id, "node_type": r.node_type, "node_subtype": r.node_subtype,
         "node_label": r.node_label, "trigger": r.trigger, "status": r.status,
         "error": r.error or "",
-        "input_chars": r.input_chars, "output_chars": r.output_chars, "model": r.model,
+        "input_chars": r.input_chars, "output_chars": r.output_chars, "model": public_model(r.model),
         "prompt_tokens": r.prompt_tokens, "completion_tokens": r.completion_tokens,
         "cost_est": r.cost_est, "duration_ms": r.duration_ms, "retries": r.retries,
         "queued_ms": r.queued_ms, "template_key": r.template_key,
@@ -596,7 +597,7 @@ async def run_logs_export(days: int = 30, username: str = "", project_id: str = 
         line = [r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else "", r.username or "",
                 r.project_name or "(项目已删除)", r.node_label or "", r.node_type or "", r.node_subtype or "",
                 label.get(r.trigger or "", r.trigger or ""), r.status or "",
-                r.input_chars, r.output_chars, r.model or "", r.prompt_tokens, r.completion_tokens,
+                r.input_chars, r.output_chars, public_model(r.model), r.prompt_tokens, r.completion_tokens,
                 r.cost_est, r.duration_ms, r.retries, r.queued_ms, r.template_key or "",
                 r.node_template_version, src.get(r.prompt_source or "", r.prompt_source or ""),
                 r.prompt_template_version, (r.error or "").replace("\n", " ")[:200]]

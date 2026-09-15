@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import hashlib
 
-from ..ai import (AVAILABLE_MODELS, FORMAT_LABELS, PROMPTS, TOOL_KINDS, ai_review, rewrite,
+from ..ai import (FORMAT_LABELS, PROMPTS, PUBLIC_MODELS, TOOL_KINDS, ai_review, public_model,
+                  rewrite,
                   tool_run, typeset)
 from ..pdf_tools import merge_blocks
 from ..audit import log as audit_log
@@ -29,16 +30,25 @@ def _rev_out(r: Revision) -> dict:
     return {
         "id": r.id, "node_id": r.node_id, "parent_revision_id": r.parent_revision_id,
         "title": r.title or "", "content": r.content or "", "format_type": r.format_type or "",
-        "status": r.status or "draft", "model": r.model or "", "review_comment": r.review_comment or "",
+        "status": r.status or "draft", "model": public_model(r.model),
+        "review_comment": r.review_comment or "",
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
+
+
+def _public_config(cfg: dict | None) -> dict:
+    """节点配置对外输出：把模型档位折算为别名（standard/reasoner），不暴露厂商型号。"""
+    out = dict(cfg or {})
+    if out.get("model"):
+        out["model"] = public_model(str(out["model"]))
+    return out
 
 
 def _node_out(n: CanvasNode) -> dict:
     return {
         "id": n.id, "type": n.type, "subtype": n.subtype, "label": n.label,
         "position": {"x": n.position_x or 0, "y": n.position_y or 0},
-        "config": n.config or {}, "status": n.status or "idle", "error": n.error or "",
+        "config": _public_config(n.config), "status": n.status or "idle", "error": n.error or "",
     }
 
 
@@ -154,7 +164,7 @@ async def list_prompts(user: User = Depends(get_current_user), db: AsyncSession 
 
     注意：必须走 effective_prompts，否则管理员改的全站提示词不会体现在节点面板里。
     """
-    return {"prompts": await effective_prompts(db, user), "labels": FORMAT_LABELS, "models": AVAILABLE_MODELS}
+    return {"prompts": await effective_prompts(db, user), "labels": FORMAT_LABELS, "models": PUBLIC_MODELS}   # 只给中性别名，界面不出现模型厂商
 
 
 @router.get("/projects/{pid}/canvas")
@@ -447,7 +457,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             await set_status(db, node, "done")
             await _finish_run(db, run, output=rev, model=model, prompt=_pinfo,
                               usage={**usage, "queued_ms": int((waited or 0) * 1000)})
-            return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model,
+            return {"node_id": node.id, "status": "done", "revision_id": rev.id,
+                    "model": public_model(model),
                     "retries": int(usage.get("retries") or 0), "queued_ms": int((waited or 0) * 1000)}
 
         if node.type == "tool":
@@ -513,8 +524,8 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             await _finish_run(db, run, output=rev, model=model, prompt=_pinfo,
                               params={"kind": kind, "ratio": ratio},
                               usage={**usage, "queued_ms": int((waited or 0) * 1000)})
-            return {"node_id": node.id, "status": "done", "revision_id": rev.id, "model": model,
-                    "kind": kind, "chars": len(text),
+            return {"node_id": node.id, "status": "done", "revision_id": rev.id,
+                    "model": public_model(model), "kind": kind, "chars": len(text),
                     "retries": int(usage.get("retries") or 0), "queued_ms": int((waited or 0) * 1000)}
 
         if node.type == "reviewer":
@@ -579,11 +590,11 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                     for k in total:
                         total[k] += int(usage.get(k) or 0)
                 r.status = "approved" if ok else "draft"
-                r.review_comment = f"[AI审稿·{model}] {comment}"
+                r.review_comment = f"[AI审稿] {comment}"
                 if ok:
                     passed_cnt += 1
                 reviews.append({"revision_id": r.id, "format_type": r.format_type,
-                                "passed": ok, "comment": comment, "model": model})
+                                "passed": ok, "comment": comment, "model": public_model(model)})
             await db.commit()
             await record_usage(db, user=user, kind="ai_review", model=last_model,
                                project_id=node.project_id, node_id=node.id, **_usage_kwargs(total))
@@ -646,7 +657,7 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                               params={"export": node.subtype or "", "typeset": True},
                               usage={**usage, "queued_ms": int((waited or 0) * 1000)})
             return {"node_id": node.id, "status": "done", "revision_id": rev.id,
-                    "format_type": rev.format_type, "typeset": True, "model": model,
+                    "format_type": rev.format_type, "typeset": True, "model": public_model(model),
                     "chars": len(text), "retries": int(usage.get("retries") or 0),
                     "queued_ms": int((waited or 0) * 1000)}
 
