@@ -148,10 +148,16 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+const COLLAPSE_KEY = 'cs_palette_collapsed'
+
 function Palette() {
   const select = useStore((s) => s.select)
   const currentId = useStore((s) => s.currentId)
   const [groups, setGroups] = useState<PaletteGroupView[]>(BUILTIN_GROUPS)
+  // 折叠状态记住在本地：每位同事按自己的习惯收起不常用的分组，刷新后依然保持
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}') } catch { return {} }
+  })
   useEffect(() => {
     void (async () => {
       try {
@@ -160,17 +166,56 @@ function Palette() {
       } catch { /* 接口不可用时保留内置节点库 */ }
     })()
   }, [])
+
+  function persist(next: Record<string, boolean>) {
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)) } catch { /* 隐私模式下忽略 */ }
+  }
+  function toggle(group: string) {
+    setCollapsed((c) => {
+      const next = { ...c, [group]: !c[group] }
+      persist(next)
+      return next
+    })
+  }
+  const allCollapsed = groups.length > 0 && groups.every((g) => collapsed[g.group])
+  function toggleAll() {
+    const next: Record<string, boolean> = {}
+    groups.forEach((g) => { next[g.group] = !allCollapsed })
+    persist(next)
+    setCollapsed(next)
+  }
+
   return (
     <aside className="palette">
-      <div className="palette-title">节点库 <span className="dim">（拖到画布）</span></div>
-      {groups.map((g) => (
+      <div className="palette-title">
+        <span>节点库 <span className="dim">（拖到画布）</span></span>
+        <button className="pal-toggle" onClick={toggleAll} title={allCollapsed ? '展开所有分组' : '折叠所有分组'}>
+          {allCollapsed ? '全部展开' : '全部折叠'}
+        </button>
+      </div>
+      {groups.map((g) => {
+        const shut = !!collapsed[g.group]
+        return (
         <div key={g.group}>
-          <div className="palette-group">
+          <div
+            className={`palette-group${shut ? ' collapsed' : ''}`}
+            role="button"
+            tabIndex={0}
+            aria-expanded={!shut}
+            title={shut ? `展开「${g.group}」` : `折叠「${g.group}」`}
+            onClick={() => toggle(g.group)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(g.group) }
+            }}
+          >
+            <span className={`tri${shut ? '' : ' open'}`} aria-hidden="true">▶</span>
             <i className="gdot" style={{ background: g.color }} />
             <span>{g.group}</span>
-            {g.hint ? <span className="ghint">{g.hint}</span> : null}
+            {shut
+              ? <span className="gcount">{g.items.length}</span>
+              : g.hint ? <span className="ghint">{g.hint}</span> : null}
           </div>
-          {g.items.map((it) => (
+          {shut ? null : g.items.map((it) => (
             <div
               key={it.kind + it.subtype}
               className={`palette-item pi-${it.kind}`}
@@ -186,7 +231,8 @@ function Palette() {
             </div>
           ))}
         </div>
-      ))}
+        )
+      })}
       <div className="legend">
         <div><i className="dot idle" />待命</div><div><i className="dot running" />执行中</div>
         <div><i className="dot done" />完成</div><div><i className="dot approved" />已通过</div>

@@ -286,3 +286,19 @@ textarea.small { font-size: 13px; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .two-col h4 { margin: 0 0 8px; font-size: 14px; }
 @media (max-width: 1100px) { .two-col { grid-template-columns: 1fr; } }
+
+/* 节点库分组折叠（三角形按钮） */
+.palette-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.pal-toggle { font-size: 11px; font-weight: 400; padding: 1px 7px; border-radius: 99px; border: 1px solid #e2e8f0;
+  background: #fff; color: #64748b; cursor: pointer; flex: 0 0 auto; }
+.pal-toggle:hover { border-color: #6366f1; color: #4338ca; background: #eef2ff; }
+.palette-group { cursor: pointer; user-select: none; border-radius: 6px; padding: 2px 5px; margin-left: -5px;
+  border: 1px solid transparent; transition: background .12s, color .12s; }
+.palette-group:hover { background: #eef2ff; color: #4338ca; }
+.palette-group:hover .tri { color: #6366f1; }
+.palette-group:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 1px; }
+.palette-group .tri { font-size: 9px; line-height: 1; color: #94a3b8; flex: 0 0 auto;
+  display: inline-block; transition: transform .16s ease; }
+.palette-group .tri.open { transform: rotate(90deg); }
+.palette-group .gcount { font-size: 10px; color: #94a3b8; background: #eef2f7; border-radius: 99px;
+  padding: 0 6px; line-height: 15px; }
