@@ -241,7 +241,7 @@ export default function AdminApp() {
               <div className="card"><div className="card-num">{runSum?.totals.cost_est ?? '-'}</div><div className="card-label">估算费用（元）</div></div>
               <div className="card"><div className="card-num">{Math.round((runSum?.totals.avg_duration_ms ?? 0) / 100) / 10}s</div><div className="card-label">平均耗时</div></div>
             </div>
-            <div className="admin-toolbar" style={{ marginTop: 12 }}>
+            <div className="admin-toolbar runlog-bar" style={{ marginTop: 12 }}>
               <select value={runFilter.days} onChange={(e) => setRunFilter({ ...runFilter, days: Number(e.target.value) })}>
                 <option value={1}>近 1 天</option><option value={7}>近 7 天</option>
                 <option value={30}>近 30 天</option><option value={90}>近 90 天</option><option value={365}>近一年</option>
@@ -256,7 +256,7 @@ export default function AdminApp() {
                 <option value="">全部状态</option><option value="ok">成功</option>
                 <option value="failed">失败</option><option value="blocked">被拦截</option><option value="running">运行中</option>
               </select>
-              <input placeholder="用户/项目/节点/错误关键字" value={runFilter.q} style={{ maxWidth: 220 }}
+              <input className="rl-q" placeholder="用户/项目/节点/错误关键字" value={runFilter.q}
                 onChange={(e) => setRunFilter({ ...runFilter, q: e.target.value })} />
               <span className="check-row" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Switch checked={runFilter.only_failed} onChange={(v) => setRunFilter({ ...runFilter, only_failed: v })} />

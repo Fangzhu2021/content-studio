@@ -302,3 +302,11 @@ textarea.small { font-size: 13px; }
 .palette-group .tri.open { transform: rotate(90deg); }
 .palette-group .gcount { font-size: 10px; color: #94a3b8; background: #eef2f7; border-radius: 99px;
   padding: 0 6px; line-height: 15px; }
+
+/* 运行台账筛选行：三个下拉框收窄，与关键字/开关/按钮同排一行 */
+.admin-toolbar.runlog-bar { flex-wrap: wrap; row-gap: 6px; }
+.admin-toolbar.runlog-bar select { width: auto; max-width: 100%; min-width: 0; margin: 0;
+  padding: 5px 8px; font-size: 13px; border-radius: 8px; flex: 0 0 auto; }
+.admin-toolbar.runlog-bar .rl-q { width: 210px; flex: 0 1 210px; margin: 0; padding: 5px 8px; font-size: 13px; }
+.admin-toolbar.runlog-bar .check-row { flex: 0 0 auto; white-space: nowrap; }
+.admin-toolbar.runlog-bar button:not(.switch) { width: auto; flex: 0 0 auto; padding: 6px 12px; font-size: 13px; }
