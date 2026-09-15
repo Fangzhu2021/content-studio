@@ -700,3 +700,19 @@ cd /path/to/content-studio/backend
 | 普通用户权限 | PASS（403） |
 | 审计不含明文 | PASS（`audit_logs` 中 Token 明文出现 0 次） |
 | 浏览器端到端 14 项 | PASS（区块渲染、掩码、密码框不回显、下拉中性文案、测试连接成功、保存后节点面板跟随、界面填入 Token 掩码显示、清除回落、DOM 无 Token 明文、控制台 0 错误） |
+
+### 16.2 右侧面板与输出窗口放大（提交 `0fc2135`）
+
+**问题**：右侧栏的「输出预览」（AI 改写结果）与「成稿预览」（导出结果）窗口太小——`.out-content` / `.preview-content` **没有任何高度规则**，textarea 按浏览器默认只渲染约 2 行，长稿得在巴掌大的框里滚动。
+
+**改法**（`frontend/src/index.css` + `App.tsx`）：
+
+| 项 | 之前 | 现在 |
+|---|---|---|
+| 输出 / 成稿预览窗口 | 无高度（约 2 行 ≈ 45px） | `height: 52vh; min-height: 300px; max-height: 82vh`，并支持 `resize: vertical` 手动拉伸 |
+| 富文本（内联样式 HTML）预览 | `max-height: 420px` | `max-height: 68vh` |
+| 面板默认宽度 | 360px | **520px** |
+| 面板宽度上限 | 780px | **1100px**（拖拽与本地记忆逻辑沿用） |
+| 窄屏（`max-height: 800px`） | — | 输出窗口自动收敛为 `44vh / min 220px`，避免按钮被挤出屏幕 |
+
+**验证**（Playwright，8 项全 PASS）：面板默认 520px；AI 节点输出窗口 469×494px；遍历画布节点共 8 个输出/预览窗口，最小高度 494px；`resize=vertical` 可手动拉伸；拖拽分隔条后面板 520→823px、窗口宽 469→772px；拖到上限 1100px；刷新后面板宽度记忆保持；控制台 0 错误。

@@ -80,7 +80,7 @@ input:focus, textarea:focus { outline: 2px solid #c7d2fe; border-color: #6366f1;
 
 /* ---------- 右侧面板 ---------- */
 /* 右侧面板：宽度由外层 .panel-wrap 控制，可拖拽调整 */
-.panel-wrap { background: #fff; display: flex; flex-direction: column; min-width: 260px; max-width: 780px;
+.panel-wrap { background: #fff; display: flex; flex-direction: column; min-width: 300px; max-width: 1100px;
   border-left: 1px solid #e2e8f0; }
 .panel { width: 100%; background: #fff; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
@@ -310,3 +310,19 @@ textarea.small { font-size: 13px; }
 .admin-toolbar.runlog-bar .rl-q { width: 210px; flex: 0 1 210px; margin: 0; padding: 5px 8px; font-size: 13px; }
 .admin-toolbar.runlog-bar .check-row { flex: 0 0 auto; white-space: nowrap; }
 .admin-toolbar.runlog-bar button:not(.switch) { width: auto; flex: 0 0 auto; padding: 6px 12px; font-size: 13px; }
+
+/* ---------- 右侧面板：输出 / 成稿预览窗口放大 ---------- */
+/* 输出预览（AI 改写结果）、成稿预览（导出结果）：占满可视高度的大窗口，可手动上下拉伸 */
+.out-content, .preview-content {
+  height: 52vh; min-height: 300px; max-height: 82vh; resize: vertical; line-height: 1.75;
+}
+.outbox { display: flex; flex-direction: column; }
+.outbox .out-content { margin-top: 2px; }
+/* 富文本（内联样式 HTML）预览同步放大 */
+.html-preview { max-height: 68vh; overflow: auto; }
+/* 面板内可编辑正文（草稿/提示词）也给足高度 */
+.panel-body textarea.rev-content:not(.out-content):not(.preview-content) { min-height: 180px; }
+/* 窄屏（笔记本竖屏或分屏）自动收敛，避免把按钮挤出屏幕 */
+@media (max-height: 800px) {
+  .out-content, .preview-content { height: 44vh; min-height: 220px; }
+}

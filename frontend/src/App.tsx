@@ -242,9 +242,9 @@ function Palette() {
   )
 }
 
-const PANEL_MIN = 260
-const PANEL_MAX = 780
-const PANEL_DEFAULT = 360
+const PANEL_MIN = 300
+const PANEL_MAX = 1100      // 输出窗口要看得清长稿，允许拖到很宽
+const PANEL_DEFAULT = 520
 
 function Workspace() {
   const user = useStore((s) => s.user)
