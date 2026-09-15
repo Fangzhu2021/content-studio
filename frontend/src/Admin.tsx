@@ -61,6 +61,11 @@ export default function AdminApp() {
   const [runLogs, setRunLogs] = useState<any>({ total: 0, items: [] })
   const [runDetail, setRunDetail] = useState<any>(null)
   const [versions, setVersions] = useState<any>(null)
+  const [keyInput, setKeyInput] = useState('')          // 新 Token（留空=不修改）
+  const [keyTouched, setKeyTouched] = useState(false)
+  const [keyClear, setKeyClear] = useState(false)       // 点过「清除」
+  const [aiTest, setAiTest] = useState<any>(null)
+  const [testing, setTesting] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -127,6 +132,38 @@ export default function AdminApp() {
     try {
       setVersions({ title, items: await api.adminTemplateVersions({ template_type: templateType, template_id: templateId }) })
     } catch (e) { toastMsg(errText(e)) }
+  }
+
+  /** 组装系统设置提交体：Token 未改动时不提交，避免被空串误清除 */
+  function settingsBody() {
+    const body: Record<string, unknown> = { ...settings }
+    delete body.ai_api_key
+    delete body.ai_api_key_masked
+    delete body.ai_api_key_set
+    delete body.ai_key_source
+    delete body.ai_base_url_effective
+    if (keyTouched && keyInput.trim()) body.ai_api_key = keyInput.trim()
+    else if (keyClear) body.ai_api_key = ''
+    return body
+  }
+
+  async function saveSettings(tip = '设置已保存，立即生效') {
+    try {
+      await api.adminSaveSettings(settingsBody())
+      setKeyInput(''); setKeyTouched(false); setKeyClear(false)
+      await load()
+      toastMsg(tip)
+    } catch (e) { toastMsg(errText(e)) }
+  }
+
+  async function testAiConnection() {
+    setTesting(true); setAiTest(null)
+    try {
+      const r: any = await api.adminAiTest(settings.ai_default_model)
+      setAiTest(r)
+      toastMsg(r.ok ? `连接正常（${r.model} · ${r.latency_ms}ms）` : `连接失败：${r.message}`)
+    } catch (e) { toastMsg(errText(e)) }
+    setTesting(false)
   }
 
   async function openRunDetail(id: string) {
@@ -690,6 +727,55 @@ export default function AdminApp() {
 
         {tab === 'settings' && settings ? (
           <div className="settings-form">
+            <h4>🤖 AI 服务</h4>
+            <p className="tip">
+              <b>保存后立即生效，无需重启服务。</b>Token 只保存在服务器数据库里，接口仅回传掩码；留空表示沿用服务器 <code>.env</code> 中的配置。
+            </p>
+            <div className="reg-bar" style={{ marginBottom: 10 }}>
+              <div className="reg-text">
+                <b>
+                  当前 Token：
+                  {settings.ai_key_source === 'admin' ? '已由后台配置'
+                    : settings.ai_key_source === 'env' ? '取自服务器 .env'
+                    : '未配置（AI 节点将走模拟模式）'}
+                </b>
+                <span className="dim">
+                  {settings.ai_api_key_set
+                    ? `${settings.ai_api_key_masked} · 服务地址 ${settings.ai_base_url_effective || '-'}`
+                    : '在下方填写 Token 即可接入真实模型'}
+                </span>
+              </div>
+            </div>
+            <label>API Token（留空=不修改；填新的即替换）</label>
+            <input type="password" value={keyInput} autoComplete="new-password"
+              placeholder={settings.ai_api_key_set ? '输入新 Token 可替换（当前已配置）' : '粘贴 AI 服务 Token，如 sk-…'}
+              onChange={(e) => { setKeyInput(e.target.value); setKeyTouched(!!e.target.value.trim()) }} />
+            <div className="btn-row">
+              <span className="dim" style={{ flex: 1 }}>
+                {keyTouched ? '保存后即替换为新的 Token' : keyClear ? '保存后将清除后台 Token，回落服务器 .env' : '未改动'}
+              </span>
+              <button onClick={() => { setKeyInput(''); setKeyTouched(false); setKeyClear(true) }} disabled={!settings.ai_api_key_set}>清除 Token</button>
+            </div>
+            <label>默认模型档位（新建/未单独设置的节点使用这一档）</label>
+            <select value={settings.ai_default_model || 'standard'}
+              onChange={(e) => setSettings({ ...settings, ai_default_model: e.target.value })}>
+              <option value="standard">标准（默认，推荐）</option>
+              <option value="reasoner">深度思考（更慢更细，适合长稿）</option>
+            </select>
+            <label>AI 服务地址（OpenAI 兼容接口，留空=用服务器默认）</label>
+            <input value={settings.ai_base_url || ''} placeholder={settings.ai_base_url_effective || '服务器 .env 中的默认地址'}
+              onChange={(e) => setSettings({ ...settings, ai_base_url: e.target.value })} />
+            <div className="btn-row">
+              <button onClick={() => void testAiConnection()} disabled={testing}>
+                {testing ? '⏳ 测试中…' : '🔌 测试连接'}
+              </button>
+              <button className="primary" onClick={() => void saveSettings()}>💾 保存 AI 服务设置</button>
+              <span className="dim" style={{ flex: 1, textAlign: 'right' }}>
+                {aiTest ? (aiTest.ok ? `✓ 正常（${modelLabel(aiTest.model)} · ${aiTest.latency_ms}ms · 回复：${aiTest.message}）` : `✗ ${aiTest.message}`) : ''}
+              </span>
+            </div>
+            <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '14px 0' }} />
+            <h4>⚙️ 配额与并发</h4>
             <label className="check-row" style={{ alignItems: 'center' }}>
               <Switch checked={!!settings.registration_open}
                 onChange={(v) => setSettings({ ...settings, registration_open: v })} />
@@ -711,9 +797,7 @@ export default function AdminApp() {
             <label>排队等待上限（秒，超过则提示服务繁忙）</label>
             <input type="number" value={settings.max_queue_wait_seconds ?? 120} style={{ maxWidth: 140 }}
               onChange={(e) => setSettings({ ...settings, max_queue_wait_seconds: Number(e.target.value) })} />
-            <button className="primary wide" onClick={async () => {
-              try { await api.adminSaveSettings(settings); toastMsg('设置已保存') } catch (e) { toastMsg(errText(e)) }
-            }}>💾 保存设置</button>
+            <button className="primary wide" onClick={() => void saveSettings()}>💾 保存设置</button>
             <p className="tip">修改配额后对下一次调用立即生效；预算仅用于统计提醒，不自动阻断。</p>
           </div>
         ) : null}

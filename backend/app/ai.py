@@ -10,7 +10,7 @@ import time
 
 import httpx
 
-from .config import get_settings
+from .ai_runtime import ai_config, load_ai_config, mask_key
 
 # 各格式的改写要求（写进 system prompt）
 PROMPTS = {
@@ -59,8 +59,13 @@ def public_model(model: str | None) -> str:
 
 
 def resolve_model(model: str | None) -> str:
-    """把界面别名 / 旧的真实模型名统一解析为后端可用的模型名。"""
+    """把界面别名 / 旧的真实模型名统一解析为后端可用的模型名。
+
+    未指定时使用「系统设置」里的全站默认档位（节点级配置优先）。
+    """
     name = (model or "").strip()
+    if not name:
+        name = str(ai_config().get("default_model") or "").strip()
     if not name:
         return DEFAULT_MODEL
     name = MODEL_ALIASES.get(name, name)
@@ -76,8 +81,8 @@ async def rewrite(format_type: str, content: str, title: str = "",
     - model：节点级模型档位（node.config.model），默认 deepseek-chat
     - 未配置 AI Key 时走 mock，保证流程可演示
     """
-    s = get_settings()
-    if not s.deepseek_api_key:
+    cfg = ai_config()
+    if not cfg["api_key"]:
         text = _mock_rewrite(format_type, content, title)
         return text, "mock", _zero_usage(len(content or ""), len(text))
     prompt = (custom_prompt or "").strip() or PROMPTS.get(format_type)
@@ -96,9 +101,34 @@ async def rewrite(format_type: str, content: str, title: str = "",
         "temperature": 0.7,
         "max_tokens": 8000,
     }
-    headers = {"Authorization": f"Bearer {s.deepseek_api_key}"}
-    text, usage = await _post_chat(s.deepseek_base_url.rstrip("/") + "/chat/completions", payload, headers)
+    headers = {"Authorization": f"Bearer {cfg['api_key']}"}
+    text, usage = await _post_chat(f"{cfg['base_url']}/chat/completions", payload, headers)
     return text, use_model, usage
+
+
+async def ping(model: str | None = None) -> dict:
+    """连通性自检：用当前配置发一次极小请求（约 8 token），供后台「测试连接」使用。"""
+    cfg = ai_config()
+    if not cfg["api_key"]:
+        return {"ok": False, "message": "尚未配置 AI Token（可留空沿用服务器 .env）",
+                "model": "", "latency_ms": 0}
+    use_model = resolve_model(model)
+    payload = {"model": use_model,
+               "messages": [{"role": "user", "content": "只回复两个字：正常"}],
+               "max_tokens": 8, "temperature": 0}
+    t0 = time.time()
+    try:
+        text, usage = await _post_chat(f"{cfg['base_url']}/chat/completions", payload,
+                                       {"Authorization": f"Bearer {cfg['api_key']}"})
+    except AIError as exc:
+        return {"ok": False, "message": str(exc), "model": public_model(use_model),
+                "latency_ms": int((time.time() - t0) * 1000)}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "message": f"调用失败：{exc}", "model": public_model(use_model),
+                "latency_ms": int((time.time() - t0) * 1000)}
+    return {"ok": True, "message": (text or "").strip()[:40] or "连接正常",
+            "model": public_model(use_model),
+            "latency_ms": int(usage.get("duration_ms") or (time.time() - t0) * 1000)}
 
 
 def _mock_rewrite(format_type: str, content: str, title: str) -> str:
@@ -148,8 +178,8 @@ async def ai_review(title: str, content: str,
                     model: str | None = None,
                     strict: bool = False) -> tuple[bool, str, str, dict]:
     """AI 审稿：返回 (是否通过, 审稿意见, 模型名)。无 Key 时模拟通过。"""
-    s = get_settings()
-    if not s.deepseek_api_key:
+    cfg = ai_config()
+    if not cfg["api_key"]:
         return True, "【模拟模式】后端尚未配置 AI Key，默认通过。", "mock", _zero_usage(len(content or ""), 0)
     prompt = (custom_prompt or "").strip() or REVIEW_PROMPT
     use_model = resolve_model(model)
@@ -162,12 +192,12 @@ async def ai_review(title: str, content: str,
         "temperature": 0.2,
         "max_tokens": 1000,
     }
-    headers = {"Authorization": f"Bearer {s.deepseek_api_key}"}
+    headers = {"Authorization": f"Bearer {cfg['api_key']}"}
+    url = f"{cfg['base_url']}/chat/completions"
     async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(s.deepseek_base_url.rstrip("/") + "/chat/completions", json=payload, headers=headers)
+        resp = await client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
-        raw = (await _post_chat(s.deepseek_base_url.rstrip("/") + "/chat/completions", payload,
-                                {"Authorization": f"Bearer {s.deepseek_api_key}"}))[0]
+        raw = (await _post_chat(url, payload, headers))[0]
 
     data = None
     try:
@@ -270,8 +300,8 @@ async def tool_run(kind: str, title: str, content: str,
     """工具节点：kind = condense（稿件精简）| style_prompt（风格提取）。"""
     if kind not in TOOL_KINDS:
         raise ValueError(f"不支持的工具类型: {kind}")
-    s = get_settings()
-    if not s.deepseek_api_key:
+    cfg = ai_config()
+    if not cfg["api_key"]:
         text = _mock_tool(kind, title, content)
         return text, "mock", _zero_usage(len(content or ""), len(text))
     prompt = (custom_prompt or "").strip() or PROMPTS[kind]
@@ -291,8 +321,8 @@ async def tool_run(kind: str, title: str, content: str,
         "temperature": 0.4,
         "max_tokens": 4000,
     }
-    headers = {"Authorization": f"Bearer {s.deepseek_api_key}"}
-    text, usage = await _post_chat(s.deepseek_base_url.rstrip("/") + "/chat/completions", payload, headers)
+    headers = {"Authorization": f"Bearer {cfg['api_key']}"}
+    text, usage = await _post_chat(f"{cfg['base_url']}/chat/completions", payload, headers)
 
     # 精简节点：首轮若超出目标字数较多，做 1~2 次强制压缩到明确字数上限
     if kind == "condense" and ratio:
@@ -304,7 +334,7 @@ async def tool_run(kind: str, title: str, content: str,
             if not target or len(text) <= target * 1.15:
                 break
             try:
-                text, extra = await _compress_to(text, target, use_model, s.deepseek_api_key, s.deepseek_base_url)
+                text, extra = await _compress_to(text, target, use_model, cfg['api_key'], cfg['base_url'])
                 usage["prompt_tokens"] += extra["prompt_tokens"]
                 usage["completion_tokens"] += extra["completion_tokens"]
                 usage["duration_ms"] += extra["duration_ms"]
@@ -520,9 +550,9 @@ async def typeset(subtype: str, title: str, content: str,
                   custom_prompt: str | None = None,
                   model: str | None = None) -> tuple[str, str, dict]:
     """成稿导出：把稿件排版为可粘贴的成稿（公众号输出内联样式 HTML）。"""
-    s = get_settings()
+    cfg = ai_config()
     key = f"export_{subtype}"
-    if not s.deepseek_api_key:
+    if not cfg["api_key"]:
         return _mock_typeset(subtype, title, content), "mock", _zero_usage(len(content or ""), len(content or ""))
     prompt = (custom_prompt or "").strip() or PROMPTS.get(key) or PROMPTS.get("wechat")
     use_model = resolve_model(model)
@@ -535,8 +565,8 @@ async def typeset(subtype: str, title: str, content: str,
         "temperature": 0.3,
         "max_tokens": 8000,
     }
-    headers = {"Authorization": f"Bearer {s.deepseek_api_key}"}
-    text, usage = await _post_chat(s.deepseek_base_url.rstrip("/") + "/chat/completions", payload, headers)
+    headers = {"Authorization": f"Bearer {cfg['api_key']}"}
+    text, usage = await _post_chat(f"{cfg['base_url']}/chat/completions", payload, headers)
     # 去掉可能被包上的 markdown 代码围栏
     text = text.strip()
     if text.startswith("```"):

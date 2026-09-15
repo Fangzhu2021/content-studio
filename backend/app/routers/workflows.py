@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import hashlib
 
+from ..ai_runtime import ai_config
 from ..ai import (FORMAT_LABELS, PROMPTS, PUBLIC_MODELS, TOOL_KINDS, ai_review, public_model,
                   rewrite,
                   tool_run, typeset)
@@ -164,7 +165,9 @@ async def list_prompts(user: User = Depends(get_current_user), db: AsyncSession 
 
     注意：必须走 effective_prompts，否则管理员改的全站提示词不会体现在节点面板里。
     """
-    return {"prompts": await effective_prompts(db, user), "labels": FORMAT_LABELS, "models": PUBLIC_MODELS}   # 只给中性别名，界面不出现模型厂商
+    return {"prompts": await effective_prompts(db, user), "labels": FORMAT_LABELS,
+            "models": PUBLIC_MODELS,   # 只给中性别名，界面不出现模型厂商
+            "default_model": public_model(ai_config().get("default_model"))}
 
 
 @router.get("/projects/{pid}/canvas")

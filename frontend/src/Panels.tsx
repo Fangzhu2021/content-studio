@@ -5,11 +5,14 @@ import { FORMATS, STATUS_TEXT, TYPE_META } from './types'
 import { modelAlias, modelLabel, modelOptionLabel } from './labels'
 import type { Revision } from './types'
 
-let promptDefaults: { prompts: Record<string, string>; labels: Record<string, string>; models: string[] } | null = null
+let promptDefaults: { prompts: Record<string, string>; labels: Record<string, string>; models: string[]; default_model?: string } | null = null
 async function loadPromptDefaults() {
   if (!promptDefaults) promptDefaults = await api.getPrompts()
   return promptDefaults
 }
+
+/** 管理后台「系统设置」里配置的全站默认模型档位（节点未单独设置时生效） */
+function globalDefaultModel() { return modelAlias(promptDefaults?.default_model) }
 
 function copyText(text: string) {
   const done = () => useStore.getState().toastMsg('已复制到剪贴板')
@@ -203,7 +206,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
 
   const cfg = (node.data.config || {}) as Record<string, any>
   const custom = !!(cfg.prompt && String(cfg.prompt).trim())
-  const effectiveModel = modelAlias(cfg.model)
+  const effectiveModel = cfg.model ? modelAlias(cfg.model) : globalDefaultModel()
 
   useEffect(() => {
     void (async () => {
@@ -220,7 +223,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
     if (!defaultPrompt || initRef.current === key) return
     initRef.current = key
     setDraft(cfg.prompt ? String(cfg.prompt) : defaultPrompt)
-    setModel(modelAlias(cfg.model))
+    setModel(cfg.model ? modelAlias(cfg.model) : globalDefaultModel())
   }, [defaultPrompt, node.id, defaultKey, cfg.prompt, cfg.model])
 
   useEffect(() => { setSaved(false); void loadMine() }, [node.id])
@@ -234,7 +237,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
     const sameAsDefault = !trimmed || trimmed === (defaultPrompt || '').trim()
     if (sameAsDefault) delete nextCfg.prompt
     else nextCfg.prompt = nextPrompt
-    if (nextModel && nextModel !== 'standard') nextCfg.model = nextModel
+    if (nextModel && nextModel !== globalDefaultModel()) nextCfg.model = nextModel
     else delete nextCfg.model
     try {
       const updated = await api.updateNode(node.id, { config: nextCfg })
@@ -271,7 +274,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
           <textarea className="rev-content" rows={10} value={draft} onChange={(e) => setDraft(e.target.value)} />
           <div className="btn-row">
             <button className="primary" onClick={() => save(draft, model)}>💾 保存提示词</button>
-            <button onClick={() => save('', 'standard', true)}>↺ 恢复默认</button>
+            <button onClick={() => save('', globalDefaultModel(), true)}>↺ 恢复默认</button>
             <button onClick={() => setDraft(defaultPrompt)}>⤵ 重新载入默认模板</button>
           </div>
           <label>我的模板（个人库，载入后可保存到本节点）</label>

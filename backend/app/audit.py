@@ -11,6 +11,10 @@ DEFAULT_SETTINGS: dict[str, dict] = {
     "max_concurrency_global": {"value": 8},
     "max_concurrency_user": {"value": 2},
     "max_queue_wait_seconds": {"value": 120},   # 排队等待上限，超过则快速失败
+    # ---- AI 服务配置（管理后台可改，留空则回落 backend/.env）----
+    "ai_api_key": {"value": ""},                # AI 服务 Token（接口只回传掩码）
+    "ai_base_url": {"value": ""},               # AI 服务地址（OpenAI 兼容）
+    "ai_default_model": {"value": "standard"},  # 全站默认模型档位：standard / reasoner
 }
 
 

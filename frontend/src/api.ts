@@ -175,6 +175,9 @@ export const api = {
   async adminSaveSettings(body: Record<string, unknown>) {
     const { data } = await http.put('/admin/settings', body); return data
   },
+  async adminAiTest(model?: string) {
+    const { data } = await http.post('/admin/ai/test', model ? { model } : {}); return data
+  },
   async createInvite(role: string, days: number, note = '') {
     const { data } = await http.post('/invites', { role, expires_days: days, note })
     return data as { id: string; code: string; link: string; role: string; expires_at: string | null }

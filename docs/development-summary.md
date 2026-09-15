@@ -640,3 +640,63 @@ cd /path/to/content-studio/backend
 - 数据库复查：`revisions.review_comment` / `content`、`audit_logs.detail`、`canvas_nodes.error/config`、`prompt_templates.content`、`node_templates.prompt`、`run_logs.error/params` 中厂商名出现次数均为 0
 
 > 说明：`backend/app/config.py` 的环境变量名、`ai.py` 里的真实模型名与代码注释仍保留原始命名，属于后端内部实现，不会出现在任何界面、接口响应或前端打包产物中（前端源码与 `dist` 产物已确认为 0 命中）。
+
+---
+
+## 十七、AI 服务配置搬到后台：Token、模型档位、服务地址（提交 `aa8b681`）
+
+**先回答一个常见疑问**：Token 此前**不是硬编码在代码里**，而是从服务器 `backend/.env` 读取（`config.py` 里代码默认值是空串）。问题在于改一次要 SSH 上服务器改文件 + `systemctl restart`，非技术同事完全改不了。这一节把它搬到管理后台。
+
+### 17.1 新增设置项
+
+| 设置键 | 默认 | 说明 |
+|---|---|---|
+| `ai_api_key` | 空 | AI 服务 Token；**留空=沿用 `.env`**，填入即覆盖 |
+| `ai_base_url` | 空 | OpenAI 兼容服务地址；留空=用 `.env` 或内置默认 |
+| `ai_default_model` | `standard` | 全站默认模型档位（`standard` / `reasoner`），节点未单独设置时生效 |
+
+配置生效顺序：**节点级档位 > 系统设置 > `.env` > 代码默认**。与提示词的优先级设计一致。
+
+### 17.2 运行时配置（保存即生效，无需重启）
+
+新增 `backend/app/ai_runtime.py`：
+
+- `load_ai_config(db)`：读数据库三项设置，缺省项回落 `.env`，写入进程内缓存；启动引导（`main.py::_bootstrap`）与**每次保存设置后**都会调用，因此改 Token / 换模型**立即生效，不用重启服务**
+- `ai_config()`：同步读取缓存，供 `ai.py` 各调用点使用（改写 / AI 审稿 / 工具节点 / 排版导出 / 连通性自检）
+- `resolve_model()` 在未指定档位时使用全站默认档位
+- `mask_key()`：`sk-••••••5d8f` 形式的掩码，接口只回传掩码
+
+### 17.3 安全口径
+
+| 项 | 做法 |
+|---|---|
+| 回传 | `GET /admin/settings` 的 `ai_api_key` 恒为 `""`，另给 `ai_api_key_masked`、`ai_api_key_set`、`ai_key_source`（admin/env/none）、`ai_base_url_effective` |
+| 写入 | 只有显式传 `ai_api_key` 才改动；传空串/null = 清除并回落 `.env`；若收到掩码（含 `•`）视为未修改并忽略 |
+| 误清除防护 | 前端保存时若用户没动过 Token 输入框，就不提交该字段；后端只在字段显式出现时处理（此前配额就踩过 `null` 被忽略的坑） |
+| 审计 | 只记 `已更新（N 位）` / `已清除，回落服务器 .env`，**不落任何明文**（已核对 `audit_logs` 中明文出现次数为 0） |
+| 权限 | 读写均需管理员；普通用户访问返回 403 |
+
+### 17.4 「测试连接」自检
+
+新增 `POST /admin/ai/test`：用当前配置发一次极小请求（`只回复两个字：正常`，`max_tokens=8`），返回 `{ok, message, model, latency_ms}` 并写审计。失败时给出可读原因（密钥无效 / 无法连接 / 超时）。
+
+### 17.5 界面（管理后台 · 系统设置）
+
+「🤖 AI 服务」区块：当前 Token 来源与掩码 · API Token 密码框（留空=不修改，另有「清除 Token」） · 默认模型档位下拉（标准 / 深度思考） · AI 服务地址 · **🔌 测试连接** 与 **💾 保存 AI 服务设置**，结果就地显示（如 `✓ 正常（AI 模型 · 标准 · 491ms · 回复：正常）`）。节点面板的「AI 模型档位」默认值同步跟随全站设置。
+
+### 17.6 验证结果
+
+| 验证 | 结果 |
+|---|---|
+| 设置接口不回传明文 | PASS（`ai_api_key` 恒为 `""`，掩码 `sk-••••••5d8f`） |
+| 保存其它设置不会误清 Token | PASS（来源仍为 env） |
+| 后台填写 Token | PASS（来源变 admin、掩码尾号匹配、返回「已更新（28 位）」） |
+| 无效 Token 测试连接 | PASS（`ok=false`，提示「AI 服务密钥无效或无权限…」） |
+| 清除 Token 回落 `.env` | PASS（来源回到 env） |
+| 真实 Token 测试连接 | PASS（`ok=true`，891ms，回复「正常」） |
+| 默认档位切换 | PASS（`/api/prompts` 的 `default_model` 同步为 reasoner；节点面板默认值随之变化） |
+| 非法档位 | PASS（400「模型档位不合法，可选：standard/reasoner」） |
+| 自定义服务地址 | PASS（指向错误地址时给出「无法连接 AI 服务…」） |
+| 普通用户权限 | PASS（403） |
+| 审计不含明文 | PASS（`audit_logs` 中 Token 明文出现 0 次） |
+| 浏览器端到端 14 项 | PASS（区块渲染、掩码、密码框不回显、下拉中性文案、测试连接成功、保存后节点面板跟随、界面填入 Token 掩码显示、清除回落、DOM 无 Token 明文、控制台 0 错误） |

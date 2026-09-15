@@ -111,6 +111,14 @@ class AdminSettingsIn(BaseModel):
     max_concurrency_global: Optional[int] = None
     max_concurrency_user: Optional[int] = None
     max_queue_wait_seconds: Optional[int] = None
+    # ---- AI 服务（系统设置里可改，保存即生效）----
+    ai_api_key: Optional[str] = None        # 空串/null = 清除并回落 backend/.env
+    ai_base_url: Optional[str] = None       # OpenAI 兼容地址，留空 = 用默认
+    ai_default_model: Optional[str] = None  # 全站默认档位：standard / reasoner
+
+
+class AiTestIn(BaseModel):
+    model: Optional[str] = None             # 不传则用当前默认档位
 
 
 class NodeTemplateIn(BaseModel):

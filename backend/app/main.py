@@ -9,6 +9,7 @@ from . import models  # noqa: F401  确保模型注册
 from .audit import ensure_defaults
 from .config import get_settings
 from .db import Base, async_session, engine
+from .ai_runtime import load_ai_config
 from .migrate import run_migrations
 from .models import Project, User
 from .routers import admin, auth, invites, pdf, projects, templates_api, workflows
@@ -27,6 +28,8 @@ async def _bootstrap() -> None:
     async with async_session() as db:
         await ensure_defaults(db)
         await seed_templates(db)
+        cfg = await load_ai_config(db)   # AI 服务配置：后台设置优先，回落 .env
+        print(f"[bootstrap] AI 配置来源={cfg['key_from']} 默认档位={cfg['default_model']}")
         names = [n.strip() for n in os.getenv("BOOTSTRAP_ADMIN_USERNAMES", "admin").split(",") if n.strip()]
         for name in names:
             user = (await db.execute(select(User).where(User.username == name))).scalar_one_or_none()

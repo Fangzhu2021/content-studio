@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..ai import public_model
+from ..ai import PUBLIC_MODELS, ping as ai_ping, public_model
+from ..ai_runtime import ai_config, load_ai_config, mask_key
 from ..audit import get_setting, log as audit_log, set_setting
 from ..db import get_db
 from ..paths import UPLOAD_ROOT
@@ -17,7 +18,7 @@ from ..models import (AiUsage, AppSetting, AuditLog, CanvasEdge, CanvasNode, Nod
 from ..runlog import (clear_project_previews, node_template_snapshot, prompt_template_snapshot,
                       save_template_version)
 from ..schemas import (
-    AdminPasswordReset, AdminProjectTransfer, AdminSettingsIn, AdminUserUpdate,
+    AdminPasswordReset, AdminProjectTransfer, AdminSettingsIn, AdminUserUpdate, AiTestIn,
     NodeTemplateIn, NodeTemplateUpdate, PromptTemplateIn, PromptTemplateUpdate,
 )
 from ..security import hash_password
@@ -285,27 +286,64 @@ async def audit_list(action: str = "", username: str = "", limit: int = 100, off
 
 # ---------------- 设置 ----------------
 SETTING_KEYS = ("registration_open", "default_monthly_call_limit", "global_monthly_budget_yuan",
-                "max_concurrency_global", "max_concurrency_user", "max_queue_wait_seconds")
+                "max_concurrency_global", "max_concurrency_user", "max_queue_wait_seconds",
+                # AI 服务配置：后台可改，留空回落 backend/.env
+                "ai_api_key", "ai_base_url", "ai_default_model")
 
 
 @router.get("/admin/settings")
 async def get_settings_all(user: User = Depends(admin_only), db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(AppSetting))).scalars().all()
     data = {s.key: (s.value or {}).get("value") for s in rows}
-    return {k: data.get(k, await get_setting(db, k)) for k in SETTING_KEYS}
+    out = {k: data.get(k, await get_setting(db, k)) for k in SETTING_KEYS}
+    cfg = ai_config()
+    out["ai_api_key"] = ""                      # 绝不回传 Token 原文
+    out["ai_api_key_masked"] = mask_key(cfg["api_key"])
+    out["ai_api_key_set"] = bool(cfg["api_key"])
+    out["ai_key_source"] = cfg["key_from"]       # admin（后台填的）/ env（服务器 .env）/ none
+    out["ai_base_url_effective"] = cfg["base_url"]
+    return out
 
 
 @router.put("/admin/settings")
 async def update_settings(body: AdminSettingsIn, user: User = Depends(admin_only),
                           db: AsyncSession = Depends(get_db)):
+    fields = body.model_fields_set
     changed = {}
     for key in SETTING_KEYS:
+        if key == "ai_api_key":
+            continue                    # Token 单独处理，避免被通用循环写进审计
         value = getattr(body, key, None)
+        if key == "ai_default_model" and value is not None:
+            if value not in PUBLIC_MODELS:
+                raise HTTPException(400, f"模型档位不合法，可选：{'/'.join(PUBLIC_MODELS)}")
         if value is not None:
             await set_setting(db, key, value)
             changed[key] = value
-    await audit_log(db, action="admin_settings_update", user=user, detail=changed)
-    return {"ok": True, "changed": changed}
+    # Token：显式传参才改动；传空串/null = 清除并回落 .env；掩码回传视为「未修改」
+    if "ai_api_key" in fields:
+        raw = (body.ai_api_key or "").strip()
+        if "•" in raw:
+            pass                        # 前端把掩码原样回传，忽略
+        else:
+            await set_setting(db, "ai_api_key", raw)
+            changed["ai_api_key"] = f"已更新（{len(raw)} 位）" if raw else "已清除，回落服务器 .env"
+    cfg = await load_ai_config(db)       # 立即生效，无需重启服务
+    await audit_log(db, action="admin_settings_update", user=user,
+                    detail={**changed, "ai_key_source": cfg["key_from"]})
+    return {"ok": True, "changed": changed, "ai_key_source": cfg["key_from"]}
+
+
+@router.post("/admin/ai/test")
+async def ai_test_connection(body: AiTestIn | None = None, user: User = Depends(admin_only),
+                             db: AsyncSession = Depends(get_db)):
+    """测试当前 AI 配置是否可用（发一次极小请求，约 8 token）。"""
+    await load_ai_config(db)
+    res = await ai_ping(body.model if body else None)
+    await audit_log(db, action="admin_ai_test", user=user, detail={"ok": res.get("ok"),
+                                                                  "model": res.get("model", ""),
+                                                                  "latency_ms": res.get("latency_ms", 0)})
+    return res
 
 
 # ---------------- 节点库模板 ----------------
