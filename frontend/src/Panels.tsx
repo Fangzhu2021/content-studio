@@ -175,7 +175,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
   const [show, setShow] = useState(false)
   const [draft, setDraft] = useState('')
   const [model, setModel] = useState('standard')
-  const [defaultPrompt, setDefaultPrompt] = useState('')
+  const [def, setDef] = useState<{ key: string; text: string } | null>(null)   // 默认模板 + 它属于哪个 key
   const [models, setModels] = useState<string[]>(['standard', 'reasoner'])
   const [saved, setSaved] = useState(false)
   const [myList, setMyList] = useState<{ id: string; key: string; name: string; content: string }[]>([])
@@ -209,24 +209,33 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
   const effectiveModel = cfg.model ? modelAlias(cfg.model) : globalDefaultModel()
 
   useEffect(() => {
+    let alive = true
     void (async () => {
       try {
         const d = await loadPromptDefaults()
-        setDefaultPrompt(d.prompts[defaultKey] || '')
+        if (!alive) return                      // 已经切到别的节点/格式，丢弃这次结果
+        setDef({ key: defaultKey, text: d.prompts[defaultKey] || '' })
         if (d.models?.length) setModels(d.models)
-      } catch { /* 忽略 */ }
+      } catch {
+        if (alive) setDef({ key: defaultKey, text: '' })
+      }
     })()
+    return () => { alive = false }
   }, [defaultKey])
 
-  useEffect(() => {
-    const key = `${node.id}|${defaultKey}|${defaultPrompt ? 1 : 0}`
-    if (!defaultPrompt || initRef.current === key) return
-    initRef.current = key
-    setDraft(cfg.prompt ? String(cfg.prompt) : defaultPrompt)
-    setModel(cfg.model ? modelAlias(cfg.model) : globalDefaultModel())
-  }, [defaultPrompt, node.id, defaultKey, cfg.prompt, cfg.model])
+  // 只有「属于当前节点格式」的默认模板才算数：否则切换节点的瞬间会拿上一个节点的模板去填输入框
+  const defaultPrompt = def && def.key === defaultKey ? def.text : ''
 
-  useEffect(() => { setSaved(false); void loadMine() }, [node.id])
+  useEffect(() => {
+    if (!def || def.key !== defaultKey) return   // 等当前格式的默认模板就位（含“该格式没有默认模板”的情况）
+    const initKey = `${node.id}|${defaultKey}`
+    if (initRef.current === initKey) return
+    initRef.current = initKey
+    setDraft(cfg.prompt ? String(cfg.prompt) : def.text)
+    setModel(cfg.model ? modelAlias(cfg.model) : globalDefaultModel())
+  }, [def, node.id, defaultKey, cfg.prompt, cfg.model])
+
+  useEffect(() => { setSaved(false); setMinePick(''); void loadMine() }, [node.id])
 
   const dirty = draft.trim() !== (custom ? String(cfg.prompt).trim() : (defaultPrompt || '').trim())
     || model !== effectiveModel

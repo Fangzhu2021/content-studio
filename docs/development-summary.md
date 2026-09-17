@@ -716,3 +716,34 @@ cd /path/to/content-studio/backend
 | 窄屏（`max-height: 800px`） | — | 输出窗口自动收敛为 `44vh / min 220px`，避免按钮被挤出屏幕 |
 
 **验证**（Playwright，8 项全 PASS）：面板默认 520px；AI 节点输出窗口 469×494px；遍历画布节点共 8 个输出/预览窗口，最小高度 494px；`resize=vertical` 可手动拉伸；拖拽分隔条后面板 520→823px、窗口宽 469→772px；拖到上限 1100px；刷新后面板宽度记忆保持；控制台 0 错误。
+
+### 16.3 修 BUG：切换节点时右侧提示词框仍显示上一个节点的提示词（提交 `2ed6b75`）
+
+**现象**：在画布上依次点不同节点，右侧「🧠 提示词设置」里的内容有时不跟着变——比如点到「抖音」转换节点，框里却是「微博」节点的提示词。
+
+**根因**（`Panels.tsx > PromptEditor`）：默认模板是**异步**载入的（`loadPromptDefaults()`），而初始化 effect 只用「默认模板有没有」当指纹：
+
+```js
+const key = `${node.id}|${defaultKey}|${defaultPrompt ? 1 : 0}`
+if (!defaultPrompt || initRef.current === key) return
+initRef.current = key
+setDraft(cfg.prompt ? String(cfg.prompt) : defaultPrompt)   // ← 此刻 defaultPrompt 还是上一个格式的
+```
+
+切到另一个节点时，这个 effect 先拿着**上一个格式**的默认模板跑完、并记下了 key；等正确的默认模板到位后，effect 因为 key 没变而直接 `return`，于是框里永久留着上一个节点的提示词。另一种情况更糟：某个格式根本没有默认模板时 `defaultPrompt` 始终为空 → 初始化被整段跳过 → 同样残留上一个节点的内容。
+
+**修复**：
+
+1. 默认模板与它所属的 key 一起存 `def = { key, text }`，只有 `def.key === defaultKey` 才算本节点的默认值（跨格式的模板永远不参与）
+2. 载入 effect 加 `alive` 标记，切走之后的异步结果直接丢弃（消除竞态）
+3. 初始化改为「等当前格式的默认模板就位（**包括该格式确实没有默认模板**的情况）再填」，指纹简化为 `${node.id}|${defaultKey}`
+4. 顺带：切节点时清空「我的模板」下拉选择
+
+**验证**（Playwright，按 `data-id` 精确点击节点，覆盖 3 个项目 / 16 个带提示词的节点，逐个与 `/api/prompts` 的该格式默认值比对）：
+
+| | 结果 |
+|---|---|
+| 修复前（同一套测试） | **11 处不跟随**（如 抖音节点显示微博提示词、TV 稿节点显示报刊提示词） |
+| 修复后 | **0 处，RESULT: PASS**（16/16 节点提示词框内容与当前节点一致）；控制台 0 错误 |
+
+> 附带收获：这次测试踩到两个测试自身的坑——① 用 `hasText: "微博"` 选节点会误中「微博成稿」，改成按 `data-id` 精确点击；② 曾用 `.includes(label)` 判断面板是否切过去了，改为比对面板标题的完整文本。测试脚本本身不严谨会让"修复效果"看起来时好时坏。
