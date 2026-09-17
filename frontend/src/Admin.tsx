@@ -2,19 +2,20 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { errText, useStore } from './store'
 import { modelLabel } from './labels'
+import { Icon, iconNameFor } from './icons'
 
 type Tab = 'overview' | 'runlogs' | 'users' | 'projects' | 'usage' | 'audit' | 'templates' | 'settings'
 
-type TabMeta = { key: Tab; label: string; desc: string; badge?: (ov: any, users: any[], projects: any[]) => string | number }
+type TabMeta = { key: Tab; label: string; icon: string; desc: string; badge?: (ov: any, users: any[], projects: any[]) => string | number }
 const TABS: TabMeta[] = [
-  { key: 'overview', label: '📊 概览', desc: '系统总体情况与本月消耗' },
-  { key: 'runlogs', label: '🧾 运行台账', desc: '谁用了哪个模板、输入了什么、生成了什么（含失败与被拦截）', badge: () => '' },
-  { key: 'users', label: '👥 用户管理', desc: '角色、配额、密码与邀请码', badge: (_o, u) => (u?.length ?? 0) },
-  { key: 'projects', label: '📁 项目管理', desc: '全部项目、归属与清理', badge: (_o, _u, p) => (p?.length ?? 0) },
-  { key: 'usage', label: '💰 用量看板', desc: 'AI 调用趋势与成本排行' },
-  { key: 'audit', label: '📜 审计日志', desc: '关键操作留痕查询' },
-  { key: 'templates', label: '🧩 节点与提示词', desc: '维护节点库与全站提示词（改完全站生效）' },
-  { key: 'settings', label: '⚙️ 系统设置', desc: '注册、配额与并发策略' },
+  { key: 'overview', label: '概览', icon: 'activity', desc: '系统总体情况与本月消耗' },
+  { key: 'runlogs', label: '运行台账', icon: 'list-checks', desc: '谁用了哪个模板、输入了什么、生成了什么（含失败与被拦截）', badge: () => '' },
+  { key: 'users', label: '用户管理', icon: 'user-check', desc: '角色、配额、密码与邀请码', badge: (_o, u) => (u?.length ?? 0) },
+  { key: 'projects', label: '项目管理', icon: 'folder-open', desc: '全部项目、归属与清理', badge: (_o, _u, p) => (p?.length ?? 0) },
+  { key: 'usage', label: '用量看板', icon: 'activity', desc: 'AI 调用趋势与成本排行' },
+  { key: 'audit', label: '审计日志', icon: 'file-text', desc: '关键操作留痕查询' },
+  { key: 'templates', label: '节点与提示词', icon: 'wrench', desc: '维护节点库与全站提示词（改完全站生效）' },
+  { key: 'settings', label: '系统设置', icon: 'settings', desc: '注册、配额、AI 与语音识别服务' },
 ]
 
 function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -233,7 +234,7 @@ export default function AdminApp() {
       <div className="admin-denied">
         <h2>需要管理员权限</h2>
         <p>当前账号不是管理员，无法访问管理后台。</p>
-        <a href="/">← 返回工作台</a>
+        <a href="/"><Icon name="log-in" size={14} />返回工作台</a>
       </div>
     )
   }
@@ -241,11 +242,14 @@ export default function AdminApp() {
   return (
     <div className="admin">
       <header className="admin-top">
-        <div className="brand">🛠 智能编辑系统 · 管理后台</div>
+        <div className="brand">
+          <span className="brand-mark"><Icon name="settings" size={15} /></span>
+          <span>智能编辑系统 · 管理后台</span>
+        </div>
         <div className="spacer" />
         <span className="dim">{busy ? '加载中…' : ''}</span>
-        <button onClick={() => void load()}>↻ 刷新</button>
-        <a className="admin-link" href="/">← 返回工作台</a>
+        <button onClick={() => void load()}><Icon name="refresh-cw" size={14} />刷新</button>
+        <a className="admin-link" href="/"><Icon name="log-in" size={14} />返回工作台</a>
         <button onClick={logout}>退出登录</button>
       </header>
 
@@ -254,6 +258,7 @@ export default function AdminApp() {
           <div className="admin-nav-title">功能区</div>
           {TABS.map((t) => (
             <button key={t.key} className={tab === t.key ? 'on' : ''} onClick={() => { setTab(t.key); setQ('') }}>
+              <Icon name={t.icon} size={15} />
               <span className="nav-label">{t.label}</span>
               {t.badge ? <span className="nav-badge">{t.badge(ov, users, projects)}</span> : null}
             </button>
@@ -329,7 +334,7 @@ export default function AdminApp() {
                   await api.adminDownloadRunLogsCsv({ ...runFilter, only_failed: runFilter.only_failed || undefined })
                   toastMsg('台账已导出（默认不含正文预览）')
                 } catch (e) { toastMsg(errText(e)) }
-              }}>⬇ 导出 CSV</button>
+              }}><Icon name="download" size={14} />导出 CSV</button>
               <button onClick={async () => {
                 if (!confirm('按保留期清理：删除 12 个月前的运行台账，确定？')) return
                 try {
@@ -337,7 +342,7 @@ export default function AdminApp() {
                   toastMsg(`已清理 ${r.deleted} 条 12 个月前的台账`)
                   await load()
                 } catch (e) { toastMsg(errText(e)) }
-              }}>🧹 归档清理</button>
+              }}><Icon name="trash-2" size={14} />归档清理</button>
             </div>
             <table className="tbl">
               <thead>
@@ -361,7 +366,7 @@ export default function AdminApp() {
                     <td>{modelLabel(r.model)}</td>
                     <td>{r.input_chars} → {r.output_chars}</td>
                     <td>{r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + 's' : '-'}{r.queued_ms ? <span className="dim"> (排队 {Math.round(r.queued_ms / 1000)}s)</span> : null}</td>
-                    <td>{r.prompt_tokens}+{r.completion_tokens}{r.retries ? <span className="warn"> ↻{r.retries}</span> : null}</td>
+                    <td>{r.prompt_tokens}+{r.completion_tokens}{r.retries ? <span className="warn"> <Icon name="refresh-cw" size={11} />{r.retries}</span> : null}</td>
                     <td>{r.cost_est}</td>
                     <td className="dim">
                       {{ node: '节点自定义', global: '全站模板', builtin: '系统内置' }[r.prompt_source as string] || '-'}
@@ -380,7 +385,7 @@ export default function AdminApp() {
             </div>
             <div className="two-col">
               <div>
-                <h4>📈 模板使用排行（哪个节点用得最多）</h4>
+                <h4><Icon name="list-checks" size={15} />模板使用排行（哪个节点用得最多）</h4>
                 <table className="tbl">
                   <thead><tr><th>节点</th><th>类型</th><th>模板版本</th><th>次数</th></tr></thead>
                   <tbody>
@@ -392,7 +397,7 @@ export default function AdminApp() {
                 </table>
               </div>
               <div>
-                <h4>👤 使用人排行</h4>
+                <h4><Icon name="user-check" size={15} />使用人排行</h4>
                 <table className="tbl">
                   <thead><tr><th>用户</th><th>运行次数</th></tr></thead>
                   <tbody>
@@ -402,7 +407,7 @@ export default function AdminApp() {
                     {(runSum?.by_user || []).length === 0 ? <tr><td colSpan={2} className="dim">暂无</td></tr> : null}
                   </tbody>
                 </table>
-                <h4 style={{ marginTop: 14 }}>🧷 画布模板来源</h4>
+                <h4 style={{ marginTop: 14 }}><Icon name="folder-open" size={15} />画布模板来源</h4>
                 <table className="tbl">
                   <thead><tr><th>模板</th><th>次数</th></tr></thead>
                   <tbody>
@@ -416,7 +421,7 @@ export default function AdminApp() {
             </div>
             {(runSum?.recent_failures || []).length ? (
               <>
-                <h4 style={{ marginTop: 16 }}>⚠️ 最近的失败与被拦截</h4>
+                <h4 style={{ marginTop: 16 }}><Icon name="alert-triangle" size={14} />最近的失败与被拦截</h4>
                 <table className="tbl">
                   <thead><tr><th>时间</th><th>用户</th><th>节点</th><th>原因</th></tr></thead>
                   <tbody>
@@ -461,7 +466,7 @@ export default function AdminApp() {
                   setNewInvite(d)
                   await load()
                 } catch (e) { toastMsg(errText(e)) }
-              }}>＋ 生成邀请码</button>
+              }}><Icon name="plus" size={14} />生成邀请码</button>
             </div>
             <table className="tbl">
               <thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>项目</th><th>近30天调用</th><th>成本(元)</th><th>配额/月</th><th>最近登录</th><th>操作</th></tr></thead>
@@ -532,7 +537,13 @@ export default function AdminApp() {
                 })}
               </tbody>
             </table>
-            {invites.length === 0 ? <div className="empty">还没有邀请码，点右上角「＋ 生成邀请码」。</div> : null}
+            {invites.length === 0 ? (
+              <div className="empty">
+                <Icon name="key-round" size={48} className="empty-ico" />
+                <div className="empty-title">还没有邀请码</div>
+                <div className="empty-desc">点右上角「生成邀请码」，把注册链接发给同事即可。</div>
+              </div>
+            ) : null}
           </>
         ) : null}
 
@@ -568,7 +579,7 @@ export default function AdminApp() {
             <div className="admin-toolbar">
               <b>近 14 天趋势</b>
               <div className="spacer" />
-              <button onClick={() => void api.adminDownloadUsageCsv(30)}>⬇ 导出近30天 CSV</button>
+              <button onClick={() => void api.adminDownloadUsageCsv(30)}><Icon name="download" size={14} />导出近30天 CSV</button>
             </div>
             <table className="tbl">
               <thead><tr><th>日期</th><th>调用次数</th><th>Token</th><th>成本(元)</th></tr></thead>
@@ -623,11 +634,11 @@ export default function AdminApp() {
                 const subtype = prompt('格式代码（如 wechat / newspaper，可留空）', '') || ''
                 const label = prompt('节点显示名称', '新节点') || '新节点'
                 try {
-                  await api.adminCreateNodeTemplate({ group, kind, subtype, label, icon: '🧩', color: '#64748b' })
+                  await api.adminCreateNodeTemplate({ group, kind, subtype, label, icon: 'wrench', color: '#64748b' })
                   toastMsg('节点模板已创建')
                   await load()
                 } catch (e) { toastMsg(errText(e)) }
-              }}>＋ 新增节点</button>
+              }}><Icon name="plus" size={14} />新增节点</button>
             </div>
             <table className="tbl">
               <thead><tr><th>分组</th><th>节点</th><th>图标</th><th>颜色</th><th>排序</th><th>提示词</th><th>版本</th><th>状态</th><th>操作</th></tr></thead>
@@ -636,7 +647,7 @@ export default function AdminApp() {
                   <tr key={t.id}>
                     <td>{t.group}</td>
                     <td><b>{t.label}</b><div className="dim">{t.kind}{t.subtype ? ':' + t.subtype : ''}</div></td>
-                    <td style={{ fontSize: 18 }}>{t.icon}</td>
+                    <td><Icon name={iconNameFor(t.kind, t.subtype, t.icon)} size={16} /></td>
                     <td><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 99, background: t.color }} /> {t.color}</td>
                     <td>{t.sort}</td>
                     <td>{t.prompt ? <span className="ok">{t.prompt.length} 字</span> : <span className="dim">未设置</span>}</td>
@@ -692,7 +703,7 @@ export default function AdminApp() {
                       setEditNode(null)
                       await load()
                     } catch (e) { toastMsg(errText(e)) }
-                  }}>💾 保存</button>
+                  }}><Icon name="check" size={14} />保存</button>
                 </div>
               </div>
             ) : null}
@@ -740,7 +751,7 @@ export default function AdminApp() {
                       setEditPrompt(null)
                       await load()
                     } catch (e) { toastMsg(errText(e)) }
-                  }}>💾 保存并全站生效</button>
+                  }}><Icon name="check" size={14} />保存并全站生效</button>
                 </div>
               </div>
             ) : null}
@@ -749,7 +760,7 @@ export default function AdminApp() {
 
         {tab === 'settings' && settings ? (
           <div className="settings-form">
-            <h4>🤖 AI 服务</h4>
+            <h4><Icon name="sparkles" size={15} />AI 服务</h4>
             <p className="tip">
               <b>保存后立即生效，无需重启服务。</b>Token 只保存在服务器数据库里，接口仅回传掩码；留空表示沿用服务器 <code>.env</code> 中的配置。
             </p>
@@ -789,15 +800,17 @@ export default function AdminApp() {
               onChange={(e) => setSettings({ ...settings, ai_base_url: e.target.value })} />
             <div className="btn-row">
               <button onClick={() => void testAiConnection()} disabled={testing}>
-                {testing ? '⏳ 测试中…' : '🔌 测试连接'}
+                {testing ? '测试中…' : '测试连接'}
               </button>
-              <button className="primary" onClick={() => void saveSettings()}>💾 保存 AI 服务设置</button>
+              <button className="primary" onClick={() => void saveSettings()}><Icon name="check" size={14} />保存 AI 服务设置</button>
               <span className="dim" style={{ flex: 1, textAlign: 'right' }}>
-                {aiTest ? (aiTest.ok ? `✓ 正常（${modelLabel(aiTest.model)} · ${aiTest.latency_ms}ms · 回复：${aiTest.message}）` : `✗ ${aiTest.message}`) : ''}
+                {aiTest ? (aiTest.ok
+                  ? <><Icon name="check" size={13} /> 正常（{modelLabel(aiTest.model)} · {aiTest.latency_ms}ms · 回复：{aiTest.message}）</>
+                  : <><Icon name="x" size={13} /> {aiTest.message}</>) : ''}
               </span>
             </div>
             <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '14px 0' }} />
-            <h4>🎙️ 语音识别服务（录音转文字）</h4>
+            <h4><Icon name="mic" size={15} />语音识别服务（录音转文字）</h4>
             <p className="tip">
               默认使用<b>本机服务</b>（sherpa-onnx + SenseVoice 中文模型），<b>音频不出内网</b>、按分钟只记用量不计费。
               若改用云端识别，请填服务地址并打开「允许音频出内网」，否则调用会被拒绝。
@@ -832,15 +845,17 @@ export default function AdminApp() {
               onChange={(e) => setSettings({ ...settings, asr_price_per_hour: Number(e.target.value) })} />
             <div className="btn-row">
               <button onClick={() => void testAsrConnection()} disabled={testingAsr}>
-                {testingAsr ? '⏳ 测试中…' : '🔌 测试识别服务'}
+                {testingAsr ? '测试中…' : '测试识别服务'}
               </button>
-              <button className="primary" onClick={() => void saveSettings()}>💾 保存语音识别设置</button>
+              <button className="primary" onClick={() => void saveSettings()}><Icon name="check" size={14} />保存语音识别设置</button>
               <span className="dim" style={{ flex: 1, textAlign: 'right' }}>
-                {asrTest ? (asrTest.ok ? `✓ ${asrTest.message}（${asrTest.model} · ${asrTest.threads} 线程）` : `✗ ${asrTest.message}`) : ''}
+                {asrTest ? (asrTest.ok
+                  ? <><Icon name="check" size={13} /> {asrTest.message}（{asrTest.model} · {asrTest.threads} 线程）</>
+                  : <><Icon name="x" size={13} /> {asrTest.message}</>) : ''}
               </span>
             </div>
             <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '14px 0' }} />
-            <h4>⚙️ 配额与并发</h4>
+            <h4><Icon name="settings" size={15} />配额与并发</h4>
             <label className="check-row" style={{ alignItems: 'center' }}>
               <Switch checked={!!settings.registration_open}
                 onChange={(v) => setSettings({ ...settings, registration_open: v })} />
@@ -862,7 +877,7 @@ export default function AdminApp() {
             <label>排队等待上限（秒，超过则提示服务繁忙）</label>
             <input type="number" value={settings.max_queue_wait_seconds ?? 120} style={{ maxWidth: 140 }}
               onChange={(e) => setSettings({ ...settings, max_queue_wait_seconds: Number(e.target.value) })} />
-            <button className="primary wide" onClick={() => void saveSettings()}>💾 保存设置</button>
+            <button className="primary wide" onClick={() => void saveSettings()}><Icon name="check" size={14} />保存设置</button>
             <p className="tip">修改配额后对下一次调用立即生效；预算仅用于统计提醒，不自动阻断。</p>
           </div>
         ) : null}
@@ -946,7 +961,7 @@ export default function AdminApp() {
             </div>
             <div className="btn-row right">
               <button onClick={() => setNewInvite(null)}>关闭</button>
-              <button className="primary" onClick={() => copyInviteLink(newInvite)}>📋 复制链接</button>
+              <button className="primary" onClick={() => copyInviteLink(newInvite)}><Icon name="copy" size={14} />复制链接</button>
             </div>
           </div>
         </div>

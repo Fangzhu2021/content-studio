@@ -8,10 +8,29 @@ export interface FlowNode {
   id: string
   type: 'cs'
   position: { x: number; y: number }
-  data: { kind: string; subtype: string; label: string; status: string; error?: string; config?: Record<string, unknown> }
+  data: {
+    kind: string
+    subtype: string
+    label: string
+    status: string
+    error?: string
+    config?: Record<string, unknown>
+    icon?: string
+    durationMs?: number
+    chars?: number
+    progress?: number
+  }
   selected?: boolean
 }
 export interface FlowEdge { id: string; source: string; target: string; animated?: boolean }
+
+/* 节点模板图标（后台可改）：kind:subtype → Lucide 图标名 */
+let TEMPLATE_ICONS: Record<string, string> = {}
+export function setTemplateIcons(nodes: { kind: string; subtype: string; icon: string }[]) {
+  const next: Record<string, string> = {}
+  for (const n of nodes) next[`${n.kind}:${n.subtype || ''}`] = n.icon || ''
+  TEMPLATE_ICONS = next
+}
 
 export function toFlowNode(n: CanvasNode): FlowNode {
   const meta = TYPE_META[n.type as keyof typeof TYPE_META]
@@ -19,9 +38,49 @@ export function toFlowNode(n: CanvasNode): FlowNode {
   const fallback = fmt ? `${meta?.label || n.type} · ${fmt}` : (meta?.label || n.type)
   // 后端在未传 label 时会用类型名兜底，这里把这种占位名换回可读名称
   const label = (n.label && n.label !== n.type) ? n.label : fallback
-  return { id: n.id, type: 'cs', position: n.position, data: { kind: n.type, subtype: n.subtype, label, status: n.status || 'idle', error: n.error || '', config: n.config || {} } }
+  return {
+    id: n.id, type: 'cs', position: n.position,
+    data: {
+      kind: n.type, subtype: n.subtype, label, status: n.status || 'idle', error: n.error || '',
+      config: n.config || {}, icon: TEMPLATE_ICONS[`${n.type}:${n.subtype || ''}`] || '',
+    },
+  }
 }
 export function toFlowEdge(e: CanvasEdge): FlowEdge { return { id: e.id, source: e.source, target: e.target } }
+
+/** 刷新画布时保留本地指标（耗时/字数/进度）：接口不返回这些字段，否则会被清空 */
+function keepMetrics(prev: FlowNode[], next: FlowNode[]): FlowNode[] {
+  const byId = new Map(prev.map((n) => [n.id, n.data]))
+  return next.map((n) => {
+    const old = byId.get(n.id)
+    if (!old) return n
+    const data = { ...n.data }
+    if (old.durationMs != null) data.durationMs = old.durationMs
+    if (old.chars != null) data.chars = old.chars
+    if (old.icon) data.icon = old.icon
+    return { ...n, data }
+  })
+}
+
+/** 拓扑排序（与后端一致）：用于「运行工作流」按序逐个发起 */
+function topoOrder(ids: string[], edges: FlowEdge[]): string[] {
+  const indeg: Record<string, number> = {}
+  const out: Record<string, string[]> = {}
+  ids.forEach((id) => { indeg[id] = 0; out[id] = [] })
+  edges.forEach((e) => {
+    if (indeg[e.target] === undefined || indeg[e.source] === undefined) return
+    indeg[e.target] += 1
+    out[e.source].push(e.target)
+  })
+  const queue = ids.filter((id) => indeg[id] === 0)
+  const order: string[] = []
+  while (queue.length) {
+    const id = queue.shift() as string
+    order.push(id)
+    for (const t of out[id]) { indeg[t] -= 1; if (indeg[t] === 0) queue.push(t) }
+  }
+  return order.length === ids.length ? order : ids
+}
 
 /* ---------- Store ---------- */
 interface StoreState {
@@ -35,9 +94,15 @@ interface StoreState {
   toast: string | null
   ws: WebSocket | null
   running: string[]
+  stopRequested: boolean
+  runPlan: { total: number; done: number } | null
+  runActive: boolean
+  zoom: number
+  lastRun: { at: number; ms: number; failed: number; total: number } | null
 
   toastMsg(msg: string): void
   select(id: string | null): void
+  setZoom(z: number): void
   init(): Promise<void>
   login(username: string, password: string): Promise<void>
   register(username: string, password: string, inviteCode?: string): Promise<void>
@@ -55,11 +120,17 @@ interface StoreState {
   removeEdgeLocal(id: string): void
   syncNode(nodeId: string, data: Partial<FlowNode['data']>): void
   runProject(): Promise<void>
+  stopRun(): void
 }
 
 export const useStore = create<StoreState>((set, get) => {
-  function patchStatus(nodeId: string, status: string, error?: string) {
-    const nodes = get().nodes.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, status, error: error || '' } } : n))
+  function patchStatus(nodeId: string, status: string, error?: string, extra: Partial<FlowNode['data']> = {}) {
+    // 过滤掉 undefined：HTTP 响应里没有耗时时，不能覆盖掉 WebSocket 刚送来的耗时/字数
+    const clean: Record<string, unknown> = {}
+    Object.entries(extra).forEach(([k, v]) => { if (v !== undefined && v !== null) clean[k] = v })
+    const nodes = get().nodes.map((n) => (
+      n.id === nodeId ? { ...n, data: { ...n.data, status, error: error || '', ...clean } } : n
+    ))
     set({ nodes })
   }
   async function openWs(pid: string): Promise<WebSocket | null> {
@@ -71,8 +142,15 @@ export const useStore = create<StoreState>((set, get) => {
       try {
         const msg = JSON.parse(ev.data as string)
         if (msg.type === 'node_status' && msg.node_id) {
-          patchStatus(msg.node_id, msg.status || 'done', msg.error || '')
-          set({ running: get().running.filter((x) => x !== msg.node_id) })
+          patchStatus(msg.node_id, msg.status || 'done', msg.error || '', {
+            durationMs: msg.duration_ms,
+            chars: msg.chars,
+            progress: msg.progress,
+          })
+          // 只有终态才算「这个节点跑完了」；后端开始执行时会广播 running，不能当结束
+          if (['done', 'failed', 'approved', 'canceled'].includes(msg.status)) {
+            set({ running: get().running.filter((x) => x !== msg.node_id) })
+          }
         }
       } catch { /* ignore */ }
     }
@@ -81,10 +159,11 @@ export const useStore = create<StoreState>((set, get) => {
 
   return {
     token: null, user: null, projects: [], currentId: null, nodes: [], edges: [], selected: null,
-    toast: null, ws: null, running: [],
+    toast: null, ws: null, running: [], stopRequested: false, runPlan: null, runActive: false, zoom: 1, lastRun: null,
 
     toastMsg: (msg) => { set({ toast: msg }); setTimeout(() => { if (get().toast === msg) set({ toast: null }) }, 4200) },
     select: (id) => set({ selected: id }),
+    setZoom: (z) => set({ zoom: z }),
 
     async init() {
       const token = getToken()
@@ -112,7 +191,7 @@ export const useStore = create<StoreState>((set, get) => {
       clearAuth()
       localStorage.removeItem('cs_last_project')
       get().ws?.close()
-      set({ token: null, user: null, projects: [], currentId: null, nodes: [], edges: [], selected: null, ws: null })
+      set({ token: null, user: null, projects: [], currentId: null, nodes: [], edges: [], selected: null, ws: null, lastRun: null })
     },
     async loadProjects() { set({ projects: await api.listProjects() }) },
     async createProject(name, template, aiReview = false) {
@@ -125,19 +204,19 @@ export const useStore = create<StoreState>((set, get) => {
       get().ws?.close()
       const d = await api.getProject(id)
       localStorage.setItem('cs_last_project', id)
-      set({ currentId: id, nodes: d.nodes.map(toFlowNode), edges: d.edges.map(toFlowEdge), selected: null, running: [] })
+      set({ currentId: id, nodes: d.nodes.map(toFlowNode), edges: d.edges.map(toFlowEdge), selected: null, running: [], stopRequested: false })
       set({ ws: await openWs(id) })
     },
     closeProject() {
       get().ws?.close()
       localStorage.removeItem('cs_last_project')
-      set({ currentId: null, nodes: [], edges: [], selected: null, ws: null })
+      set({ currentId: null, nodes: [], edges: [], selected: null, ws: null, running: [], lastRun: null })
     },
     async refreshCanvas() {
       const cid = get().currentId
       if (!cid) return
       const c = await api.getCanvas(cid)
-      set({ nodes: c.nodes.map(toFlowNode), edges: c.edges.map(toFlowEdge) })
+      set({ nodes: keepMetrics(get().nodes, c.nodes.map(toFlowNode)), edges: c.edges.map(toFlowEdge) })
     },
     setNodes: (nodes) => set({ nodes }),
     setEdges: (edges) => set({ edges }),
@@ -155,19 +234,61 @@ export const useStore = create<StoreState>((set, get) => {
       const nodes = get().nodes.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n))
       set({ nodes })
     },
+
+    /** 运行工作流：前端按拓扑序逐个发起（trigger=auto），「停止」可真正中止后续节点 */
     async runProject() {
-      const cid = get().currentId
-      if (!cid) return
-      set({ running: get().nodes.map((n) => n.id) })
-      try {
-        const res = await api.executeProject(cid)
-        const failed = res.results.filter((r) => r.status === 'failed')
-        get().toastMsg(failed.length ? `执行完成：${failed.length} 个节点失败，请查看` : '画布自动执行完成')
-      } catch (e) { get().toastMsg(api.detail(e)) }
-      set({ running: [] })
+      const { currentId, nodes, edges } = get()
+      if (!currentId) return
+      const order = topoOrder(nodes.map((n) => n.id), edges)
+      const t0 = Date.now()
+      const total = order.filter((id) => nodes.find((n) => n.id === id)?.data.kind !== 'reviewer').length
+      set({ stopRequested: false, running: [], lastRun: null, runActive: true, runPlan: { total, done: 0 } })
+      let failed = 0
+      let done = 0
+      for (const id of order) {
+        if (get().stopRequested) break
+        const node = get().nodes.find((n) => n.id === id)
+        if (!node) continue
+        if (node.data.kind === 'reviewer') continue          // 人工审定节点需手动操作
+        set({ running: [...get().running, id] })
+        patchStatus(id, 'running')
+        try {
+          const r: any = await api.executeNode(id, { trigger: 'auto' })
+          done += 1
+          // 录音转写等异步节点返回 running，其余交给 WebSocket 收尾（耗时/字数以台账广播为准）
+          if (r?.status && r.status !== 'running') {
+            const extra: Record<string, unknown> = {}
+            if (r.chars != null) extra.chars = r.chars
+            if (r.duration_ms != null) extra.durationMs = r.duration_ms
+            patchStatus(id, r.status === 'approved' ? 'approved' : 'done', '', extra as any)
+          }
+        } catch (e) {
+          failed += 1
+          patchStatus(id, 'failed', errText(e))
+        } finally {
+          set({
+            running: get().running.filter((x) => x !== id),
+            runPlan: { total, done },
+          })
+        }
+      }
+      const ms = Date.now() - t0
+      set({ lastRun: { at: Date.now(), ms, failed, total: done } })
+      get().toastMsg(get().stopRequested
+        ? `已停止：本次完成 ${done} 个节点${failed ? `，${failed} 个失败` : ''}`
+        : failed ? `执行结束：${failed} 个节点失败，请查看节点提示` : `工作流执行完成（${done} 个节点）`)
+      set({ stopRequested: false, runPlan: null, runActive: false })
       await get().refreshCanvas()
+    },
+    stopRun() {
+      if (!get().running.length && !get().stopRequested) return
+      set({ stopRequested: true })
+      get().toastMsg('已请求停止：正在执行的节点会跑完，后续节点不再发起')
     },
   }
 })
 
 export function errText(e: unknown): string { return api.detail(e) }
+
+/* 调试与端到端测试用：把 store 挂到 window（只读使用，不影响业务） */
+if (typeof window !== 'undefined') (window as any).__csStore = useStore

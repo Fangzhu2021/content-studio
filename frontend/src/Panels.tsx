@@ -3,6 +3,8 @@ import { api } from './api'
 import { errText, useStore, type FlowNode } from './store'
 import { FORMATS, STATUS_TEXT, TYPE_META } from './types'
 import { modelAlias, modelLabel, modelOptionLabel } from './labels'
+import { Icon, iconNameFor } from './icons'
+import { catOf } from './types'
 import type { Revision } from './types'
 
 let promptDefaults: { prompts: Record<string, string>; labels: Record<string, string>; models: string[]; default_model?: string } | null = null
@@ -104,8 +106,8 @@ function FailBanner({ node, onRetry, busy }: { node: FlowNode; onRetry: () => vo
   if (node.data.status !== 'failed') return null
   return (
     <div className="fail-banner">
-      <div className="fail-text">⚠ 上次执行失败：{node.data.error || '未知错误'}</div>
-      <button className="primary" disabled={busy} onClick={onRetry}>↻ 重试执行</button>
+      <div className="fail-text"><Icon name="alert-triangle" size={13} /> 上次执行失败：{node.data.error || '未知错误'}</div>
+      <button className="primary" disabled={busy} onClick={onRetry}><Icon name="refresh-cw" size={14} />重试执行</button>
     </div>
   )
 }
@@ -128,6 +130,68 @@ function useRevision(nodeId?: string | null) {
   return { rev, reload }
 }
 
+/* 节点摘要下方的上下文条：输入来源 + 最近执行记录（规范 6.4） */
+function PanelMeta({ node }: { node: FlowNode }) {
+  const nodes = useStore((s) => s.nodes)
+  const edges = useStore((s) => s.edges)
+  const [records, setRecords] = useState<Revision[]>([])
+  useEffect(() => {
+    let dropped = false
+    void (async () => {
+      try {
+        const rows = await api.nodeHistory(node.id)
+        if (!dropped) setRecords(rows.slice(0, 5))
+      } catch { if (!dropped) setRecords([]) }
+    })()
+    return () => { dropped = true }
+  }, [node.id, node.data.status])
+
+  const ups = edges.filter((e) => e.target === node.id)
+    .map((e) => nodes.find((n) => n.id === e.source))
+    .filter(Boolean) as FlowNode[]
+
+  if (!ups.length && !records.length) return null
+  return (
+    <div className="panel-meta">
+      {ups.length ? (
+        <div className="panel-meta-row">
+          <span className="panel-meta-label"><Icon name="log-in" size={12} />输入来源</span>
+          {ups.map((u) => (
+            <span className="chip" key={u.id} title={`${u.data.label} · ${STATUS_TEXT[u.data.status] || u.data.status}`}>
+              <Icon name={iconNameFor(u.data.kind, u.data.subtype, u.data.icon)} size={11} />
+              {u.data.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {records.length ? (
+        <div className="panel-meta-row">
+          <span className="panel-meta-label"><Icon name="clock" size={12} />执行记录</span>
+          {records.map((r) => (
+            <span className="rec-item" key={r.id}>
+              <span className={`pill st-${r.status === 'approved' ? 'approved' : r.status === 'finalized' ? 'done' : r.status}`}>
+                {STATUS_TEXT[r.status] || r.status}
+              </span>
+              <span className="rec-time">{(r.created_at || '').slice(11, 19) || '—'}</span>
+              <span className="rec-num">{r.content?.length || 0}字</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function EmptyState({ icon, title, desc }: { icon: string; title: string; desc: string }) {
+  return (
+    <div className="empty">
+      <Icon name={icon} size={48} className="empty-ico" />
+      <div className="empty-title">{title}</div>
+      <div className="empty-desc">{desc}</div>
+    </div>
+  )
+}
+
 function OutBox({ rev, hint }: { rev: Revision | null; hint?: string }) {
   if (!rev) return <div className="empty">{hint || '暂无输出'}</div>
   return (
@@ -136,7 +200,7 @@ function OutBox({ rev, hint }: { rev: Revision | null; hint?: string }) {
       <div className="rev-title">{rev.title || '（无标题）'}</div>
       {rev.review_comment ? <div className="comment">审定意见：{rev.review_comment}</div> : null}
       <textarea className="rev-content out-content" readOnly value={rev.content} spellCheck={false} />
-      {rev.content ? <button onClick={() => copyText(rev.content)}>📋 复制全文</button> : null}
+      {rev.content ? <button onClick={() => copyText(rev.content)}><Icon name="copy" size={14} />复制全文</button> : null}
     </div>
   )
 }
@@ -164,7 +228,7 @@ function DraftPanel({ node }: { node: FlowNode }) {
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="稿件标题" />
       <label>正文</label>
       <textarea className="rev-content" rows={14} value={content} onChange={(e) => setContent(e.target.value)} placeholder="粘贴原始稿件内容…" />
-      <button onClick={save} disabled={saving}>{saving ? '保存中…' : '💾 保存草稿'}</button>
+      <button onClick={save} disabled={saving}><Icon name="check" size={14} />{saving ? '保存中…' : '保存草稿'}</button>
       {rev?.content ? <div className="ok">已保存（{new Date(rev.created_at || '').toLocaleString('zh-CN')}）</div> : null}
     </div>
   )
@@ -266,7 +330,7 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
   return (
     <div className="prompt-box">
       <div className="prompt-head">
-        <span>🧠 提示词设置 {custom ? <span className="chip on">已自定义</span> : <span className="chip">默认模板</span>}</span>
+        <span><Icon name="sparkles" size={14} /> 提示词设置 {custom ? <span className="chip on">已自定义</span> : <span className="chip">默认模板</span>}</span>
         <button onClick={() => setShow(!show)}>{show ? '收起' : '修改'}</button>
       </div>
       {show ? (
@@ -282,8 +346,8 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
           <label>该节点提示词（已预填{cfg.prompt ? '本节点已保存的内容' : '系统默认模板'}，可直接修改）</label>
           <textarea className="rev-content" rows={10} value={draft} onChange={(e) => setDraft(e.target.value)} />
           <div className="btn-row">
-            <button className="primary" onClick={() => save(draft, model)}>💾 保存提示词</button>
-            <button onClick={() => save('', globalDefaultModel(), true)}>↺ 恢复默认</button>
+            <button className="primary" onClick={() => save(draft, model)}><Icon name="check" size={14} />保存提示词</button>
+            <button onClick={() => save('', globalDefaultModel(), true)}><Icon name="refresh-cw" size={14} />恢复默认</button>
             <button onClick={() => setDraft(defaultPrompt)}>⤵ 重新载入默认模板</button>
           </div>
           <label>我的模板（个人库，载入后可保存到本节点）</label>
@@ -297,10 +361,10 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
               {myList.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
             <button onClick={saveAsMine}>＋ 另存为我的模板</button>
-            {minePick ? <button onClick={() => removeMine(minePick)}>🗑</button> : null}
+            {minePick ? <button onClick={() => removeMine(minePick)} title="删除该个人模板"><Icon name="trash-2" size={14} /></button> : null}
           </div>
-          {dirty ? <div className="hint-warn">⚠ 提示词已修改但尚未保存，保存后点执行生效</div> : null}
-          {saved ? <div className="ok">✔ 已保存</div> : null}
+          {dirty ? <div className="hint-warn"><Icon name="alert-triangle" size={13} /> 提示词已修改但尚未保存，保存后点执行生效</div> : null}
+          {saved ? <div className="ok"><Icon name="check" size={13} /> 已保存</div> : null}
         </>
       ) : null}
     </div>
@@ -435,7 +499,7 @@ function AudioPanel({ node }: { node: FlowNode }) {
           }}
           onClick={() => inputRef.current?.click()}
         >
-          <div className="audio-drop-ico">🎙️</div>
+          <div className="audio-drop-ico"><Icon name="mic" size={28} /></div>
           <div><b>{busy ? `上传中… ${uploadPct}%` : '把录音拖到这里，或点击选择文件'}</b></div>
           <div className="dim">支持 mp3 / m4a / wav / aac / amr / ogg / flac，单文件不超过 200MB（约 3 小时）</div>
           <input ref={inputRef} type="file" accept={AUDIO_ACCEPT} style={{ display: 'none' }}
@@ -444,7 +508,7 @@ function AudioPanel({ node }: { node: FlowNode }) {
       ) : (
         <div className="audio-file">
           <div className="audio-file-head">
-            <span className="audio-file-ico">🎧</span>
+            <span className="audio-file-ico"><Icon name="headphones" size={16} /></span>
             <span className="audio-file-name" title={meta.filename}>{meta.filename}</span>
             <span className="dim">{fmtBytes(meta.size)}</span>
           </div>
@@ -483,7 +547,7 @@ function AudioPanel({ node }: { node: FlowNode }) {
 
       <button className="primary wide" onClick={() => void transcribe()}
         disabled={busy || running || !meta.filename || meta.status === 'done'}>
-        {running ? '⏳ 转写中…' : meta.status === 'done' ? '✓ 已转写（可重复执行查看结果）' : '🎙️ 开始转写'}
+        {running ? '转写中…' : meta.status === 'done' ? '已转写（可重复执行查看结果）' : '开始转写'}
       </button>
       {!running && meta.filename && meta.status !== 'done' && meta.duration_s === 0 && estMinutes === 0 ? (
         <p className="tip">本机速度约每小时录音需要 6~8 分钟，提交后可离开页面。</p>
@@ -524,14 +588,14 @@ function AiPanel({ node }: { node: FlowNode }) {
           ? `把上游已审定稿件转换为「${FORMATS[node.data.subtype]}」风格。`
           : `把草稿改写为「${FORMATS[node.data.subtype]}」。上游：草稿输入或上一层输出。`}
       </p>
-      <button className="primary wide" onClick={() => run()} disabled={busy}>{busy ? '⏳ 执行中…' : '⚡ 执行改写'}</button>
+      <button className="primary wide" onClick={() => run()} disabled={busy}>{busy ? '执行中…' : '执行改写'}</button>
       <FailBanner node={node} onRetry={() => run(true)} busy={busy} />
       <PromptEditor node={node} defaultKey={node.data.subtype} />
       <h4>输出预览</h4>
       <OutBox rev={rev} hint="执行后在此预览改写结果。" />
       {rev?.content ? (
         <div className="btn-row">
-          <button onClick={() => copyText(rev.content)}>📋 一键复制全文（{rev.content.length} 字）</button>
+          <button onClick={() => copyText(rev.content)}><Icon name="copy" size={14} />一键复制全文（{rev.content.length} 字）</button>
         </div>
       ) : null}
     </div>
@@ -573,7 +637,9 @@ function ReviewPanel({ node }: { node: FlowNode }) {
       <p className="tip">对上游改写稿逐篇审定：通过或打回（可填意见）。</p>
       <label>审定意见（可选）</label>
       <textarea className="small" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="批注/修改意见…" />
-      {items.length === 0 ? <div className="empty">上游暂没有稿件，请先执行改写节点。</div> : null}
+      {items.length === 0 ? (
+        <EmptyState icon="file-text" title="等待上游稿件" desc="请先执行上游的改写 / 转换节点，这里会自动出现可审定的稿件。" />
+      ) : null}
       {items.map((r) => (
         <div className="rev-card" key={r.id}>
           <div className="rev-card-head">
@@ -584,8 +650,8 @@ function ReviewPanel({ node }: { node: FlowNode }) {
           {r.review_comment ? <div className="comment">意见：{r.review_comment}</div> : null}
           {pending.some((p) => p.id === r.id) ? (
             <div className="btn-row">
-              <button className="ok-btn" disabled={!!busy} onClick={() => act(r.id, 'approved')}>✓ 通过</button>
-              <button className="no-btn" disabled={!!busy} onClick={() => act(r.id, 'draft')}>✗ 打回</button>
+              <button className="ok-btn" disabled={!!busy} onClick={() => act(r.id, 'approved')}><Icon name="check" size={13} />通过</button>
+              <button className="no-btn" disabled={!!busy} onClick={() => act(r.id, 'draft')}><Icon name="x" size={13} />打回</button>
             </div>
           ) : null}
         </div>
@@ -681,7 +747,8 @@ function ExportPanel({ node }: { node: FlowNode }) {
 
       <h4>1. 选择来源稿（点击即预览）</h4>
       {sources.length === 0 ? (
-        <div className="empty">上游还没有成稿。\n请先执行「新媒体转换」节点（公众号/微博/抖音）。</div>
+        <EmptyState icon="share-2" title="上游还没有成稿"
+          desc="请先执行「新媒体转换」节点（公众号 / 微博 / 抖音），成稿会自动出现在这里。" />
       ) : null}
       {sources.map((s) => (
         <label className={`radio-row${pick === s.id ? ' on' : ''}`} key={s.id}>
@@ -694,7 +761,7 @@ function ExportPanel({ node }: { node: FlowNode }) {
         </label>
       ))}
       <button className="primary wide" onClick={() => run()} disabled={busy || sources.length === 0}>
-        {busy ? '⏳ 排版中…' : '📤 排版并生成最终成稿'}
+        {busy ? '排版中…' : '排版并生成最终成稿'}
       </button>
       <FailBanner node={node} onRetry={() => run(true)} busy={busy} />
       <PromptEditor node={node} defaultKey={`export_${node.data.subtype || 'wechat'}`} />
@@ -725,31 +792,31 @@ function ExportPanel({ node }: { node: FlowNode }) {
             <div className="btn-row">
               {looksLikeHtml(preview.content) ? (
                 <button className="primary wide" onClick={() => copyRichHtml(preview.content || '')}>
-                  📋 一键复制富文本（粘贴进秀米/微信编辑器）
+                  <Icon name="copy" size={14} />一键复制富文本（粘贴进秀米/微信编辑器）
                 </button>
               ) : (
                 <button className="primary wide" onClick={() => copyText(preview.content || '')}>
-                  📋 一键复制预览全文（{preview.content.length} 字）
+                  <Icon name="copy" size={14} />一键复制预览全文（{preview.content.length} 字）
                 </button>
               )}
             </div>
           ) : null}
         </div>
       ) : (
-        <div className="empty">选择来源稿后在此预览内容。</div>
+        <EmptyState icon="file-text" title="尚未选择来源稿" desc="在上方列表里点选一篇上游稿件，即可在此预览并排版。" />
       )}
 
       {finalRev ? (
         <div className="final-box">
           <div className="final-head">
-            ✅ 最终成稿已就绪 — {looksLikeHtml(finalRev.content || '') ? '复制富文本后粘贴进秀米 / 微信编辑器' : '复制后到平台后台发布'}
+            <Icon name="check-circle-2" size={14} />最终成稿已就绪 — {looksLikeHtml(finalRev.content || '') ? '复制富文本后粘贴进秀米 / 微信编辑器' : '复制后到平台后台发布'}
           </div>
           <div className="btn-row">
             {looksLikeHtml(finalRev.content || '') ? (
-              <button className="primary" onClick={() => copyRichHtml(finalRev.content || '')}>📋 复制富文本（带排版）</button>
+              <button className="primary" onClick={() => copyRichHtml(finalRev.content || '')}><Icon name="copy" size={14} />复制富文本（带排版）</button>
             ) : null}
-            <button onClick={() => copyText(finalRev.content || '')}>📋 复制全文</button>
-            <button onClick={() => download(finalRev)}>⬇ 下载 {looksLikeHtml(finalRev.content || '') ? '.html' : '.md'}</button>
+            <button onClick={() => copyText(finalRev.content || '')}><Icon name="copy" size={14} />复制全文</button>
+            <button onClick={() => download(finalRev)}><Icon name="download" size={14} />下载 {looksLikeHtml(finalRev.content || '') ? '.html' : '.md'}</button>
           </div>
         </div>
       ) : null}
@@ -820,7 +887,7 @@ function AiReviewPanel({ node }: { node: FlowNode }) {
         <b> 无需人工确认。</b>
       </p>
       <button className="primary wide" onClick={run} disabled={busy}>
-        {busy ? '🤖 审稿中…' : '🤖 开始 AI 审稿'}
+        {busy ? '审稿中…' : '开始 AI 审稿'}
       </button>
       <label className="check-row strict-row">
         <input type="checkbox" checked={strict} onChange={(e) => toggleStrict(e.target.checked)} />
@@ -829,7 +896,9 @@ function AiReviewPanel({ node }: { node: FlowNode }) {
       </label>
       {summary ? <div className="ok">{summary}</div> : null}
       <h4>上游稿件（{items.length} 篇，待审 {pending.length} 篇）</h4>
-      {items.length === 0 ? <div className="empty">上游暂无稿件，请先执行改写节点。</div> : null}
+      {items.length === 0 ? (
+        <EmptyState icon="file-text" title="等待上游稿件" desc="请先执行上游的改写 / 转换节点，AI 审稿会自动取件。" />
+      ) : null}
       {items.map((r) => (
         <div className="rev-card" key={r.id}>
           <div className="rev-card-head">
@@ -911,7 +980,7 @@ function PdfPanel({ node }: { node: FlowNode }) {
         onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
       <div className="btn-row">
         <button className="primary" disabled={busy} onClick={() => inputRef.current?.click()}>
-          {busy ? '⏳ 处理中…' : info?.uploaded ? '📄 重新上传 PDF' : '📄 上传 PDF 文件'}
+          {busy ? '处理中…' : info?.uploaded ? '重新上传 PDF' : '上传 PDF 文件'}
         </button>
         {info?.uploaded ? <button onClick={remove} disabled={busy}>移除</button> : null}
       </div>
@@ -929,7 +998,7 @@ function PdfPanel({ node }: { node: FlowNode }) {
             <button onClick={() => setPicked(blocks.map((b) => b.index))}>全选</button>
             <button onClick={() => setPicked([])}>全不选</button>
             <button className="primary" disabled={busy || !picked.length} onClick={generate}>
-              {busy ? '⏳ 生成中…' : '✂️ 生成稿件（用所选版块）'}
+              {busy ? '生成中…' : '生成稿件（用所选版块）'}
             </button>
           </div>
           <h4>版块列表（勾选需要的）</h4>
@@ -945,8 +1014,8 @@ function PdfPanel({ node }: { node: FlowNode }) {
           ))}
         </>
       ) : (
-        <div className="empty">还没有上传 PDF。
-支持文字版 PDF（报纸版面、公文、材料）。</div>
+        <EmptyState icon="file-text" title="尚未上传 PDF"
+          desc="支持文字版 PDF（报纸版面、公文、材料），系统按版面版块切分后勾选生成稿件。" />
       )}
 
       {msg ? <div className="hint-warn">{msg}</div> : null}
@@ -954,7 +1023,7 @@ function PdfPanel({ node }: { node: FlowNode }) {
       <OutBox rev={rev} hint="勾选版块后点「生成稿件」，结果会显示在这里。" />
       {rev?.content ? (
         <div className="btn-row">
-          <button onClick={() => copyText(rev.content)}>📋 一键复制（{rev.content.length} 字）</button>
+          <button onClick={() => copyText(rev.content)}><Icon name="copy" size={14} />一键复制（{rev.content.length} 字）</button>
         </div>
       ) : null}
     </div>
@@ -965,21 +1034,21 @@ function PdfPanel({ node }: { node: FlowNode }) {
 const TOOL_UI: Record<string, { tip: string; action: string; header: string; hint?: string }> = {
   condense: {
     tip: '从上游草稿提取精简稿：保留核心事实（时间/地点/主体/事件/数据/要求），压缩到指定篇幅。可用精简稿继续做多平台改写。',
-    action: '✂️ 提取精简稿', header: '精简稿预览',
+    action: '提取精简稿', header: '精简稿预览',
   },
   style_prompt: {
     tip: '从上游草稿提炼「写作风格提示词」。把它连线到「AI 改写 / 新媒体转换」节点，该风格会自动带入下游节点的提示词。',
-    action: '🎨 提取风格提示词', header: '风格提示词预览',
+    action: '提取风格提示词', header: '风格提示词预览',
     hint: '提示：把本节点连线到「AI 改写 / 新媒体转换」节点，该风格会自动生效。',
   },
   topic_plan: {
     tip: '根据上游草稿的基本信息，策划 3~5 个可落地的新闻选题：每条含核心角度、目标受众与传播点、采访对象与必问问题、呈现形式与平台、时效与风险提示，最后给出总体策划思路。',
-    action: '💡 策划新闻选题', header: '选题策划方案预览',
+    action: '策划新闻选题', header: '选题策划方案预览',
     hint: '提示：把选定的选题复制到「草稿输入」节点，即可继续走改写/转换/审稿流程。',
   },
   report_plan: {
     tip: '把上游素材（通常是「新闻选题策划」的结果，也可以是草稿）组合成一份可执行的报道方案：报道主题与定位、报道框架、稿件清单、采访提纲、人员分工、物料清单、风险与预案、待核实信息。',
-    action: '📋 生成报道方案', header: '报道方案预览',
+    action: '生成报道方案', header: '报道方案预览',
     hint: '提示：方案里的稿件清单可拆成多个「草稿输入」节点分别改写；采访提纲可直接打印给记者使用。',
   },
 }
@@ -1020,7 +1089,7 @@ function ToolPanel({ node }: { node: FlowNode }) {
     <div className="panel-body">
       <p className="tip">{ui.tip}</p>
       <button className="primary wide" onClick={() => run()} disabled={busy}>
-        {busy ? '⏳ 处理中…' : ui.action}
+        {busy ? '处理中…' : ui.action}
       </button>
       <FailBanner node={node} onRetry={() => run(true)} busy={busy} />
       {isCondense ? (
@@ -1038,7 +1107,7 @@ function ToolPanel({ node }: { node: FlowNode }) {
       <OutBox rev={rev} hint="执行后在此预览结果。" />
       {rev?.content ? (
         <div className="btn-row">
-          <button onClick={() => copyText(rev.content)}>📋 一键复制（{rev.content.length} 字）</button>
+          <button onClick={() => copyText(rev.content)}><Icon name="copy" size={14} />一键复制（{rev.content.length} 字）</button>
         </div>
       ) : null}
       {ui.hint && rev?.content ? <div className="hint-warn">{ui.hint}</div> : null}
@@ -1050,7 +1119,7 @@ export default function ConfigPanel() {
   const selected = useStore((s) => s.selected)
   const nodes = useStore((s) => s.nodes)
   const node = nodes.find((n) => n.id === selected) || null
-  const meta = node ? TYPE_META[node.data.kind as keyof typeof TYPE_META] : null
+  const cat = node ? catOf(node.data.kind) : null
 
   async function removeNode() {
     if (!node) return
@@ -1065,14 +1134,34 @@ export default function ConfigPanel() {
 
   return (
     <aside className="panel">
-      <div className="panel-head">
-        <span className="ph-title">{node ? <>{meta?.icon} {node.data.label}</> : '节点配置'}</span>
+      <div className="panel-head" style={node ? { ['--cat' as any]: cat?.cssVar } : undefined}>
         {node ? (
-          <button className="del-btn" onClick={removeNode} title="删除该节点（也可选中后按 Delete 键）">🗑 删除节点</button>
-        ) : null}
+          <>
+            <span className="ph-ico"><Icon name={iconNameFor(node.data.kind, node.data.subtype, node.data.icon)} size={16} /></span>
+            <div className="ph-main">
+              <div className="ph-title">{node.data.label}</div>
+              <div className="ph-sub">{cat?.label} · {STATUS_TEXT[node.data.status] || node.data.status}</div>
+            </div>
+            <button className="del-btn" onClick={removeNode} title="删除该节点（也可选中后按 Delete 键）">
+              <Icon name="trash-2" size={14} />删除
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="ph-ico"><Icon name="settings" size={16} /></span>
+            <div className="ph-main">
+              <div className="ph-title">节点配置</div>
+              <div className="ph-sub">未选中节点</div>
+            </div>
+          </>
+        )}
       </div>
+      {node ? <PanelMeta node={node} /> : null}
       {!node ? (
-        <div className="panel-body"><div className="empty">点击画布中的节点查看/配置。\n从左侧拖入节点，连线形成工作流。</div></div>
+        <div className="panel-body">
+          <EmptyState icon="square-pen" title="未选中节点"
+            desc="点击画布中的任意节点查看与配置；也可以从左侧节点库拖入一个节点开始编排。" />
+        </div>
       ) : node.data.kind === 'draft_input' ? <DraftPanel node={node} />
         : node.data.kind === 'rewriter' || node.data.kind === 'transformer' ? <AiPanel node={node} />
         : node.data.kind === 'tool' && node.data.subtype === 'pdf_extract' ? <PdfPanel node={node} />

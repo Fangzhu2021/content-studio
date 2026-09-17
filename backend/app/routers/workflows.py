@@ -408,6 +408,17 @@ async def _finish_run(db: AsyncSession, run: RunLog | None, *, status: str = "ok
         await db.commit()
     except Exception:
         await db.rollback()
+    # 把耗时与字数推给前端：画布节点要显示「耗时」，底部状态栏要显示最近执行
+    try:
+        # 台账状态（ok/failed/blocked）要映射成节点状态（done/failed），前端只认后者
+        node_status = {"ok": "done", "failed": "failed", "blocked": "failed"}.get(run.status, run.status)
+        await manager.broadcast(run.project_id or "", {
+            "type": "node_status", "node_id": run.node_id, "status": node_status,
+            "error": run.error or "", "duration_ms": run.duration_ms or 0,
+            "chars": run.output_chars or 0,
+        })
+    except Exception:
+        pass
 
 
 def _run_input(run: RunLog | None, rev: Revision | None, params: dict | None = None) -> None:

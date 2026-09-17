@@ -10,27 +10,27 @@ from .models import NodeTemplate, PromptTemplate, User
 
 # 内置节点库（前端节点库兜底，同时用于启动播种）
 BUILTIN_NODES: list[dict] = [
-    {"group": "输入", "kind": "draft_input", "subtype": "", "label": "草稿输入", "icon": "📝", "color": "#64748b", "sort": 10},
-    {"group": "工具", "hint": "（从草稿取稿）", "kind": "tool", "subtype": "condense", "label": "稿件精简", "icon": "✂️", "color": "#7c3aed", "sort": 20},
-    {"group": "工具", "hint": "（从草稿取稿）", "kind": "tool", "subtype": "style_prompt", "label": "风格提取", "icon": "🎨", "color": "#7c3aed", "sort": 21},
-    {"group": "工具", "hint": "（策划选题）", "kind": "tool", "subtype": "topic_plan", "label": "新闻选题策划", "icon": "💡", "color": "#7c3aed", "sort": 23},
-    {"group": "工具", "hint": "（组合成方案）", "kind": "tool", "subtype": "report_plan", "label": "报道方案生成", "icon": "📋", "color": "#7c3aed", "sort": 24},
-    {"group": "工具", "hint": "（上传 PDF 提取）", "kind": "tool", "subtype": "pdf_extract", "label": "PDF 版面提取", "icon": "📄", "color": "#7c3aed", "sort": 22},
-    {"group": "工具", "hint": "（上传录音转写）", "kind": "tool", "subtype": "audio_transcribe", "label": "录音转文字", "icon": "🎙️", "color": "#7c3aed", "sort": 25},
-    {"group": "AI 改写", "hint": "（原稿 → TV/报刊稿）", "kind": "rewriter", "subtype": "tv_script", "label": "电视口播稿", "icon": "📺", "color": "#6366f1", "sort": 30},
-    {"group": "AI 改写", "hint": "（原稿 → TV/报刊稿）", "kind": "rewriter", "subtype": "newspaper", "label": "报刊通稿", "icon": "📰", "color": "#6366f1", "sort": 31},
-    {"group": "审稿", "hint": "（人工 或 AI）", "kind": "reviewer", "subtype": "", "label": "人工审定", "icon": "✅", "color": "#d97706", "sort": 40},
-    {"group": "审稿", "hint": "（人工 或 AI）", "kind": "ai_reviewer", "subtype": "", "label": "AI 审稿", "icon": "🤖", "color": "#0891b2", "sort": 41},
-    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "wechat", "label": "公众号长文", "icon": "💬", "color": "#0ea5e9", "sort": 50},
-    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "weibo", "label": "微博文案", "icon": "🔥", "color": "#0ea5e9", "sort": 51},
-    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "douyin", "label": "抖音口播脚本", "icon": "🎬", "color": "#0ea5e9", "sort": 52},
-    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "xiaohongshu", "label": "小红书笔记", "icon": "📕", "color": "#0ea5e9", "sort": 53},
-    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "toutiao", "label": "头条新闻", "icon": "🗞️", "color": "#0ea5e9", "sort": 54},
-    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "wechat", "label": "公众号长文", "icon": "📤", "color": "#16a34a", "sort": 60},
-    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "weibo", "label": "微博文案", "icon": "📤", "color": "#16a34a", "sort": 61},
-    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "douyin", "label": "抖音口播脚本", "icon": "📤", "color": "#16a34a", "sort": 62},
-    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "xiaohongshu", "label": "小红书笔记", "icon": "📤", "color": "#16a34a", "sort": 63},
-    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "toutiao", "label": "头条新闻", "icon": "📤", "color": "#16a34a", "sort": 64},
+    {"group": "输入", "kind": "draft_input", "subtype": "", "label": "草稿输入", "icon": "square-pen", "color": "#64748b", "sort": 10},
+    {"group": "工具", "hint": "（从草稿取稿）", "kind": "tool", "subtype": "condense", "label": "稿件精简", "icon": "scissors", "color": "#7c3aed", "sort": 20},
+    {"group": "工具", "hint": "（从草稿取稿）", "kind": "tool", "subtype": "style_prompt", "label": "风格提取", "icon": "palette", "color": "#7c3aed", "sort": 21},
+    {"group": "工具", "hint": "（策划选题）", "kind": "tool", "subtype": "topic_plan", "label": "新闻选题策划", "icon": "lightbulb", "color": "#7c3aed", "sort": 23},
+    {"group": "工具", "hint": "（组合成方案）", "kind": "tool", "subtype": "report_plan", "label": "报道方案生成", "icon": "clipboard-list", "color": "#7c3aed", "sort": 24},
+    {"group": "工具", "hint": "（上传 PDF 提取）", "kind": "tool", "subtype": "pdf_extract", "label": "PDF 版面提取", "icon": "file-text", "color": "#7c3aed", "sort": 22},
+    {"group": "工具", "hint": "（上传录音转写）", "kind": "tool", "subtype": "audio_transcribe", "label": "录音转文字", "icon": "mic", "color": "#7c3aed", "sort": 25},
+    {"group": "AI 改写", "hint": "（原稿 → TV/报刊稿）", "kind": "rewriter", "subtype": "tv_script", "label": "电视口播稿", "icon": "tv", "color": "#6366f1", "sort": 30},
+    {"group": "AI 改写", "hint": "（原稿 → TV/报刊稿）", "kind": "rewriter", "subtype": "newspaper", "label": "报刊通稿", "icon": "newspaper", "color": "#6366f1", "sort": 31},
+    {"group": "审稿", "hint": "（人工 或 AI）", "kind": "reviewer", "subtype": "", "label": "人工审定", "icon": "user-check", "color": "#d97706", "sort": 40},
+    {"group": "审稿", "hint": "（人工 或 AI）", "kind": "ai_reviewer", "subtype": "", "label": "AI 审稿", "icon": "scan-search", "color": "#0891b2", "sort": 41},
+    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "wechat", "label": "公众号长文", "icon": "message-square-text", "color": "#0ea5e9", "sort": 50},
+    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "weibo", "label": "微博文案", "icon": "at-sign", "color": "#0ea5e9", "sort": 51},
+    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "douyin", "label": "抖音口播脚本", "icon": "clapperboard", "color": "#0ea5e9", "sort": 52},
+    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "xiaohongshu", "label": "小红书笔记", "icon": "book-heart", "color": "#0ea5e9", "sort": 53},
+    {"group": "新媒体转换", "hint": "（转成平台风格）", "kind": "transformer", "subtype": "toutiao", "label": "头条新闻", "icon": "rss", "color": "#0ea5e9", "sort": 54},
+    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "wechat", "label": "公众号长文", "icon": "send", "color": "#16a34a", "sort": 60},
+    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "weibo", "label": "微博文案", "icon": "send", "color": "#16a34a", "sort": 61},
+    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "douyin", "label": "抖音口播脚本", "icon": "send", "color": "#16a34a", "sort": 62},
+    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "xiaohongshu", "label": "小红书笔记", "icon": "send", "color": "#16a34a", "sort": 63},
+    {"group": "成稿导出", "hint": "（终稿·复制发布）", "kind": "exporter", "subtype": "toutiao", "label": "头条新闻", "icon": "send", "color": "#16a34a", "sort": 64},
 ]
 
 PROMPT_KEYS = list(PROMPTS.keys())   # tv_script/newspaper/wechat/weibo/douyin/xiaohongshu/toutiao/ai_review/condense/style_prompt
@@ -66,6 +66,19 @@ async def seed_templates(db: AsyncSession) -> None:
         want = _default_prompt_for({"kind": "exporter", "subtype": t.subtype})
         if want and t.prompt != want and (t.prompt or "") == PROMPTS.get(t.subtype, ""):
             t.prompt = want
+
+    # 图标体系：把历史 emoji 图标纠正为 Lucide 图标名（规范第 7 章：全站不使用 emoji）
+    EMOJI_TO_ICON = {
+        "📝": "square-pen", "✍️": "sparkles", "✍": "sparkles", "✅": "user-check", "🤖": "scan-search",
+        "🧰": "wrench", "📤": "send", "✂️": "scissors", "✂": "scissors", "🎨": "palette",
+        "📄": "file-text", "💡": "lightbulb", "📋": "clipboard-list", "📺": "tv", "📰": "newspaper",
+        "💬": "message-square-text", "🔥": "at-sign", "🎬": "clapperboard", "📕": "book-heart",
+        "🗞️": "rss", "🗞": "rss", "🎙️": "mic", "🎙": "mic", "🧩": "wrench",
+    }
+    for t in (await db.execute(select(NodeTemplate))).scalars():
+        icon = (t.icon or "").strip()
+        if icon in EMOJI_TO_ICON:
+            t.icon = EMOJI_TO_ICON[icon]
 
     existing_prompts = {p.key for p in (await db.execute(select(PromptTemplate))).scalars()}
     for key in PROMPT_KEYS:

@@ -1,0 +1,158 @@
+/* ============================================================================
+   智能编辑系统 · 设计令牌（Design Tokens）
+   来源：《智能编辑系统 · UI 设计规范 v1.0》第 4 章 + 附录 B（方向 B 深空精密）
+   规则：组件只允许引用令牌，不允许写死色值 / 字号 / 圆角 / 间距
+   ========================================================================= */
+
+:root {
+  /* ---------- 表面层级：纵深由三级亮度差建立，不靠投影堆叠 ---------- */
+  --bg-base: #05080e;          /* 应用最底层 */
+  --bg-canvas: #070b12;        /* 画布背景（全站最深面） */
+  --surface-1: #0f1620;        /* 顶栏 / 左栏 / 右栏面板 */
+  --surface-2: #141d29;        /* 画布节点 / 卡片 */
+  --surface-3: #1b2634;        /* 悬停态 / 输入框 / 下拉面板 */
+  --surface-4: #223044;        /* 按下态 / 选中底板 / 表头 */
+
+  /* ---------- 描边与连线：两者必须分色 ---------- */
+  --border-subtle: #18212e;    /* 面板内分隔线、表格行线 */
+  --border-default: #26344a;   /* 卡片与面板默认描边 */
+  --border-node: #4a5e80;      /* 节点静止描边（对画布 3.01:1） */
+  --border-strong: #5c749b;    /* 悬停描边、聚焦外框 */
+  --edge-default: #566d92;     /* 连线静止态（对画布 3.75:1） */
+  --edge-hover: #7298ff;       /* 连线悬停 / 上下游高亮 */
+
+  /* ---------- 文字：四级对应四级信息重要性 ---------- */
+  --text-primary: #e8eef7;
+  --text-secondary: #9aa9bf;
+  --text-tertiary: #68788f;
+  --text-disabled: #414e60;
+
+  /* ---------- 品牌 ---------- */
+  --brand-700: #2a46b8;
+  --brand-600: #3d66e8;
+  --brand-500: #4f7cff;        /* 主色 / 选中描边 / 聚焦环 */
+  --brand-400: #7298ff;
+  --brand-300: #a3baff;
+
+  /* ---------- 强调与状态 ---------- */
+  --success: #2dd4bf;
+  --running: #38bdf8;
+  --queued: #8b93a7;
+  --warning: #f5a524;
+  --error: #f4526a;
+  --info: #4f7cff;
+  --accent-cyan: #22d3ee;
+  --accent-violet: #8b5cf6;
+
+  /* 胶囊上的深色文字（保证对状态色底 3:1 以上） */
+  --on-success: #062a26;
+  --on-warning: #2a1a00;
+  --on-error: #2b0710;
+  --on-running: #04202e;
+
+  /* ---------- 节点分类色：只用于分组色点与节点左侧色条 ---------- */
+  --cat-input: #22d3ee;
+  --cat-tool: #4f7cff;
+  --cat-rewrite: #8b5cf6;
+  --cat-review: #f5a524;
+  --cat-media: #2dd4bf;
+  --cat-export: #7298ff;
+
+  /* ---------- 圆角：图标容器 8 / 节点 12 构成 2:3 嵌套 ---------- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-full: 999px;
+
+  /* ---------- 间距 ---------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+
+  /* ---------- 投影 ---------- */
+  --e-1: 0 1px 2px rgba(0, 0, 0, .40);
+  --e-2: 0 1px 2px rgba(0, 0, 0, .40), 0 4px 12px rgba(0, 0, 0, .30);
+  --e-3: 0 2px 4px rgba(0, 0, 0, .45), 0 12px 32px rgba(0, 0, 0, .40);
+
+  /* ---------- 发光：只给「选中」与「运行中」 ---------- */
+  --glow-select: 0 0 0 1px rgba(79, 124, 255, .45), 0 0 18px rgba(79, 124, 255, .28);
+  --glow-running: 0 0 0 1px rgba(56, 189, 248, .35), 0 0 20px rgba(56, 189, 248, .25);
+  --glow-error: 0 0 0 1px rgba(244, 82, 106, .40), 0 0 18px rgba(244, 82, 106, .26);
+
+  /* ---------- 渐变：全站仅品牌区、主按钮、登录页使用 ---------- */
+  --grad-brand: linear-gradient(135deg, #3d66e8 0%, #8b5cf6 100%);
+  --grad-flow: linear-gradient(90deg, #22d3ee 0%, #4f7cff 100%);
+
+  /* ---------- 字体 ---------- */
+  --font-ui: 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Menlo', ui-monospace, monospace;
+
+  /* 字号阶梯 */
+  --fs-display: 28px;
+  --fs-h1: 20px;
+  --fs-h2: 16px;
+  --fs-body: 14px;
+  --fs-label: 13px;
+  --fs-caption: 12px;
+  --fs-micro: 11px;
+
+  /* ---------- 动效 ---------- */
+  --dur-instant: 90ms;
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --dur-breath: 2000ms;
+  --dur-flow: 1200ms;
+  --ease-standard: cubic-bezier(.2, .8, .2, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+
+  /* 布局尺寸 */
+  --topbar-h: 56px;
+  --statusbar-h: 28px;
+  --palette-w: 220px;
+  --panel-w: 380px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-breath: 0ms; --dur-flow: 0ms; --dur-slow: 0ms; }
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* ============================ 基础重置 ============================ */
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: rgba(79, 124, 255, .32); }
+
+/* 滚动条：与表面层级一致，不抢视线 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--surface-4);
+  border-radius: var(--r-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); background-clip: content-box; }
+
+/* 数字：一律等宽，保证竖向对齐 */
+.mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

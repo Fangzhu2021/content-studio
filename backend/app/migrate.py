@@ -36,6 +36,8 @@ STATEMENTS = [
     "ALTER TABLE template_versions ADD COLUMN IF NOT EXISTS note VARCHAR(200) DEFAULT ''",
     # 语音识别用量：音频秒数
     "ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS audio_seconds INTEGER DEFAULT 0",
+    # 图标体系从 emoji 换成 Lucide 图标名（如 message-square-text），原 16 位不够
+    "ALTER TABLE node_templates ALTER COLUMN icon TYPE VARCHAR(40)",
 ]
 
 
