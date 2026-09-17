@@ -13,8 +13,15 @@ export function modelAlias(model?: string | null): string {
   return 'standard'                             // 标准档位（含任何历史遗留值）
 }
 
-/** 模型展示名：界面上一律显示「AI 模型」 */
+/** 模型展示名：界面上一律显示「AI 模型」；语音识别单独标识 */
 export function modelLabel(model?: string | null): string {
+  const raw = String(model ?? "").trim().toLowerCase()
+  if (!raw) return '-'
+  if (raw.startsWith('mock')) return '模拟模式'
+  // 录音转文字走的是本机语音识别模型，别显示成「AI 模型」
+  if (raw.includes('sensevoice') || raw.includes('whisper') || raw.includes('asr') || raw.includes('paraformer')) {
+    return '本机语音识别'
+  }
   const v = modelAlias(model)
   if (v === 'mock') return '模拟模式'
   if (v === 'reasoner') return 'AI 模型 · 深度思考'
