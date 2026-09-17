@@ -217,6 +217,34 @@ export const api = {
     const { data } = await http.post(`/nodes/${nodeId}/execute`, payload)
     return data as import('./types').ExecResult
   },
+  // ---- 录音转文字 ----
+  async uploadAudio(nid: string, file: File, onProgress?: (pct: number) => void) {
+    const fd = new FormData()
+    fd.append('file', file)
+    const { data } = await http.post(`/nodes/${nid}/audio`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)))
+      },
+    })
+    return data as { ok: boolean; audio: Record<string, unknown> }
+  },
+  async audioState(nid: string) {
+    const { data } = await http.get(`/nodes/${nid}/audio`)
+    return data as { audio: Record<string, any>; node_status: string }
+  },
+  async audioBlob(nid: string) {
+    const { data } = await http.get(`/nodes/${nid}/audio/file`, { responseType: 'blob', timeout: 0 })
+    return data as Blob
+  },
+  async transcribeAudio(nid: string) {
+    const { data } = await http.post(`/nodes/${nid}/audio/transcribe`)
+    return data as { status: string; job_id?: string; progress?: number; message?: string }
+  },
+  async deleteAudio(nid: string) { const { data } = await http.delete(`/nodes/${nid}/audio`); return data },
+  async testAsr() { const { data } = await http.post('/admin/asr/test'); return data },
+
   async executeProject(pid: string) {
     const { data } = await http.post(`/projects/${pid}/execute`)
     return data as { project_id: string; results: { node_id: string; status: string; message?: string }[] }

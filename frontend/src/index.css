@@ -326,3 +326,20 @@ textarea.small { font-size: 13px; }
 @media (max-height: 800px) {
   .out-content, .preview-content { height: 44vh; min-height: 220px; }
 }
+
+/* ---------- 录音转文字面板 ---------- */
+.audio-drop { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 22px 14px; text-align: center;
+  background: #fbfcfe; cursor: pointer; transition: all .15s; margin: 10px 0; }
+.audio-drop:hover, .audio-drop.on { border-color: #6366f1; background: #eef2ff; }
+.audio-drop-ico { font-size: 30px; margin-bottom: 6px; }
+.audio-file { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; background: #fcfcfd; margin: 10px 0; }
+.audio-file-head { display: flex; align-items: center; gap: 7px; }
+.audio-file-ico { font-size: 16px; }
+.audio-file-name { flex: 1; font-weight: 600; font-size: 13px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.audio-progress { border: 1px solid #c7d2fe; border-radius: 10px; padding: 10px; background: #eef2ff; margin: 10px 0; }
+.audio-progress-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600;
+  color: #4338ca; margin-bottom: 7px; }
+.audio-bar { height: 8px; border-radius: 99px; background: #dbeafe; overflow: hidden; }
+.audio-bar i { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #22c55e);
+  border-radius: 99px; transition: width .4s ease; }

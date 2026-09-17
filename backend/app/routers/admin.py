@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import asr
 from ..ai import PUBLIC_MODELS, ping as ai_ping, public_model
 from ..ai_runtime import ai_config, load_ai_config, mask_key
 from ..audit import get_setting, log as audit_log, set_setting
@@ -288,7 +289,9 @@ async def audit_list(action: str = "", username: str = "", limit: int = 100, off
 SETTING_KEYS = ("registration_open", "default_monthly_call_limit", "global_monthly_budget_yuan",
                 "max_concurrency_global", "max_concurrency_user", "max_queue_wait_seconds",
                 # AI 服务配置：后台可改，留空回落 backend/.env
-                "ai_api_key", "ai_base_url", "ai_default_model")
+                "ai_api_key", "ai_base_url", "ai_default_model",
+                # 语音识别（录音转文字）
+                "asr_base_url", "asr_api_key", "asr_model", "asr_allow_cloud", "asr_price_per_hour")
 
 
 @router.get("/admin/settings")
@@ -302,6 +305,11 @@ async def get_settings_all(user: User = Depends(admin_only), db: AsyncSession = 
     out["ai_api_key_set"] = bool(cfg["api_key"])
     out["ai_key_source"] = cfg["key_from"]       # admin（后台填的）/ env（服务器 .env）/ none
     out["ai_base_url_effective"] = cfg["base_url"]
+    asr_cfg = await asr.get_asr_config(db)
+    out["asr_api_key"] = ""                     # 同样不回传原文
+    out["asr_api_key_masked"] = mask_key(asr_cfg["api_key"])
+    out["asr_base_url_effective"] = asr_cfg["base_url"]
+    out["asr_is_local"] = asr_cfg["is_local"]
     return out
 
 
@@ -311,7 +319,7 @@ async def update_settings(body: AdminSettingsIn, user: User = Depends(admin_only
     fields = body.model_fields_set
     changed = {}
     for key in SETTING_KEYS:
-        if key == "ai_api_key":
+        if key in ("ai_api_key", "asr_api_key"):
             continue                    # Token 单独处理，避免被通用循环写进审计
         value = getattr(body, key, None)
         if key == "ai_default_model" and value is not None:
@@ -328,10 +336,25 @@ async def update_settings(body: AdminSettingsIn, user: User = Depends(admin_only
         else:
             await set_setting(db, "ai_api_key", raw)
             changed["ai_api_key"] = f"已更新（{len(raw)} 位）" if raw else "已清除，回落服务器 .env"
+    if "asr_api_key" in fields:
+        raw = (body.asr_api_key or "").strip()
+        if "•" not in raw:
+            await set_setting(db, "asr_api_key", raw)
+            changed["asr_api_key"] = f"已更新（{len(raw)} 位）" if raw else "已清除"
     cfg = await load_ai_config(db)       # 立即生效，无需重启服务
     await audit_log(db, action="admin_settings_update", user=user,
                     detail={**changed, "ai_key_source": cfg["key_from"]})
     return {"ok": True, "changed": changed, "ai_key_source": cfg["key_from"]}
+
+
+@router.post("/admin/asr/test")
+async def asr_test_connection(user: User = Depends(admin_only), db: AsyncSession = Depends(get_db)):
+    """测试语音识别服务是否可用（本机服务一般秒回）"""
+    res = await asr.service_health(db)
+    await audit_log(db, action="admin_asr_test", user=user,
+                    detail={"ok": res.get("ok"), "base_url": res.get("base_url"),
+                            "is_local": res.get("is_local"), "model": res.get("model")})
+    return res
 
 
 @router.post("/admin/ai/test")

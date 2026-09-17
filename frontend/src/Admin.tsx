@@ -66,6 +66,11 @@ export default function AdminApp() {
   const [keyClear, setKeyClear] = useState(false)       // 点过「清除」
   const [aiTest, setAiTest] = useState<any>(null)
   const [testing, setTesting] = useState(false)
+  const [asrKeyInput, setAsrKeyInput] = useState('')
+  const [asrKeyTouched, setAsrKeyTouched] = useState(false)
+  const [asrKeyClear, setAsrKeyClear] = useState(false)
+  const [asrTest, setAsrTest] = useState<any>(null)
+  const [testingAsr, setTestingAsr] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -142,8 +147,14 @@ export default function AdminApp() {
     delete body.ai_api_key_set
     delete body.ai_key_source
     delete body.ai_base_url_effective
+    delete body.asr_api_key_masked
+    delete body.asr_base_url_effective
+    delete body.asr_is_local
+    delete body.asr_api_key
     if (keyTouched && keyInput.trim()) body.ai_api_key = keyInput.trim()
     else if (keyClear) body.ai_api_key = ''
+    if (asrKeyTouched && asrKeyInput.trim()) body.asr_api_key = asrKeyInput.trim()
+    else if (asrKeyClear) body.asr_api_key = ''
     return body
   }
 
@@ -151,6 +162,7 @@ export default function AdminApp() {
     try {
       await api.adminSaveSettings(settingsBody())
       setKeyInput(''); setKeyTouched(false); setKeyClear(false)
+      setAsrKeyInput(''); setAsrKeyTouched(false); setAsrKeyClear(false)
       await load()
       toastMsg(tip)
     } catch (e) { toastMsg(errText(e)) }
@@ -164,6 +176,16 @@ export default function AdminApp() {
       toastMsg(r.ok ? `连接正常（${r.model} · ${r.latency_ms}ms）` : `连接失败：${r.message}`)
     } catch (e) { toastMsg(errText(e)) }
     setTesting(false)
+  }
+
+  async function testAsrConnection() {
+    setTestingAsr(true); setAsrTest(null)
+    try {
+      const r: any = await api.testAsr()
+      setAsrTest(r)
+      toastMsg(r.ok ? `语音识别服务正常（${r.model} · ${r.threads} 线程）` : `不可用：${r.message}`)
+    } catch (e) { toastMsg(errText(e)) }
+    setTestingAsr(false)
   }
 
   async function openRunDetail(id: string) {
@@ -772,6 +794,49 @@ export default function AdminApp() {
               <button className="primary" onClick={() => void saveSettings()}>💾 保存 AI 服务设置</button>
               <span className="dim" style={{ flex: 1, textAlign: 'right' }}>
                 {aiTest ? (aiTest.ok ? `✓ 正常（${modelLabel(aiTest.model)} · ${aiTest.latency_ms}ms · 回复：${aiTest.message}）` : `✗ ${aiTest.message}`) : ''}
+              </span>
+            </div>
+            <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '14px 0' }} />
+            <h4>🎙️ 语音识别服务（录音转文字）</h4>
+            <p className="tip">
+              默认使用<b>本机服务</b>（sherpa-onnx + SenseVoice 中文模型），<b>音频不出内网</b>、按分钟只记用量不计费。
+              若改用云端识别，请填服务地址并打开「允许音频出内网」，否则调用会被拒绝。
+            </p>
+            <div className="reg-bar" style={{ marginBottom: 10 }}>
+              <div className="reg-text">
+                <b>
+                  {settings.asr_is_local ? '当前为内网地址（音频不出网）'
+                    : settings.asr_allow_cloud ? '当前为外部地址（已允许音频出内网）'
+                    : '当前为外部地址（未允许，调用会被拒绝）'}
+                </b>
+                <span className="dim">
+                  生效地址 {settings.asr_base_url_effective || '-'} · 档位 {settings.asr_model || 'sensevoice-small'}
+                  {settings.asr_api_key_masked ? ` · Token ${settings.asr_api_key_masked}` : ''}
+                </span>
+              </div>
+            </div>
+            <label>服务地址（留空=本机 http://127.0.0.1:8030）</label>
+            <input value={settings.asr_base_url || ''} placeholder={settings.asr_base_url_effective || 'http://127.0.0.1:8030'}
+              onChange={(e) => setSettings({ ...settings, asr_base_url: e.target.value })} />
+            <label>Token（本机服务留空即可；填新的即替换）</label>
+            <input type="password" autoComplete="new-password" value={asrKeyInput}
+              placeholder={settings.asr_api_key_masked ? `已配置 ${settings.asr_api_key_masked}（留空=不修改）` : '一般留空'}
+              onChange={(e) => { setAsrKeyInput(e.target.value); setAsrKeyTouched(!!e.target.value.trim()) }} />
+            <label className="check-row" style={{ alignItems: 'center' }}>
+              <Switch checked={!!settings.asr_allow_cloud}
+                onChange={(v) => setSettings({ ...settings, asr_allow_cloud: v })} />
+              <span>允许音频出内网（改用云端识别时才需要打开）</span>
+            </label>
+            <label>识别单价（元/小时，用于估算；本机服务填 0）</label>
+            <input type="number" value={settings.asr_price_per_hour ?? 0} style={{ maxWidth: 160 }}
+              onChange={(e) => setSettings({ ...settings, asr_price_per_hour: Number(e.target.value) })} />
+            <div className="btn-row">
+              <button onClick={() => void testAsrConnection()} disabled={testingAsr}>
+                {testingAsr ? '⏳ 测试中…' : '🔌 测试识别服务'}
+              </button>
+              <button className="primary" onClick={() => void saveSettings()}>💾 保存语音识别设置</button>
+              <span className="dim" style={{ flex: 1, textAlign: 'right' }}>
+                {asrTest ? (asrTest.ok ? `✓ ${asrTest.message}（${asrTest.model} · ${asrTest.threads} 线程）` : `✗ ${asrTest.message}`) : ''}
               </span>
             </div>
             <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '14px 0' }} />

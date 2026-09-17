@@ -22,3 +22,9 @@
 
 ## 验证
     curl http://YOUR_SERVER_IP/api/health
+
+## 语音识别服务（录音转文字）
+
+`asr-service/` 目录是「🎙️ 录音转文字」节点依赖的本地语音识别服务（sherpa-onnx + SenseVoice），
+只监听 `127.0.0.1:8030`，音频不出内网、不需要 GPU。部署方式见 `asr-service/README.md`。
+若不需要录音转文字功能，可不部署该服务——节点会提示"语音识别服务不可用"，其余功能不受影响。

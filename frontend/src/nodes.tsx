@@ -50,6 +50,8 @@ export const PALETTE: PaletteGroup[] = [
     items: [
       { kind: 'tool', subtype: 'condense', icon: '✂️' },
       { kind: 'tool', subtype: 'style_prompt', icon: '🎨' },
+      { kind: 'tool', subtype: 'pdf_extract', icon: '📄' },
+      { kind: 'tool', subtype: 'audio_transcribe', icon: '🎙️' },
     ],
   },
   {

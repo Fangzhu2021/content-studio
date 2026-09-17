@@ -115,6 +115,12 @@ class AdminSettingsIn(BaseModel):
     ai_api_key: Optional[str] = None        # 空串/null = 清除并回落 backend/.env
     ai_base_url: Optional[str] = None       # OpenAI 兼容地址，留空 = 用默认
     ai_default_model: Optional[str] = None  # 全站默认档位：standard / reasoner
+    # ---- 语音识别（录音转文字）----
+    asr_base_url: Optional[str] = None
+    asr_api_key: Optional[str] = None
+    asr_model: Optional[str] = None
+    asr_allow_cloud: Optional[bool] = None
+    asr_price_per_hour: Optional[float] = None
 
 
 class AiTestIn(BaseModel):

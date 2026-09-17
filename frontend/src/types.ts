@@ -41,6 +41,7 @@ export const FORMATS: Record<string, string> = {
   condense: '稿件精简',
   style_prompt: '风格提取',
   pdf_extract: 'PDF 提取',
+  audio_transcript: '录音转写',
   topic_plan: '选题策划',
   report_plan: '报道方案',
 }

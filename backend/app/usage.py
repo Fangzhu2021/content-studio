@@ -43,7 +43,8 @@ async def record_usage(db: AsyncSession, *, user: User | None, kind: str, model:
                        prompt_chars: int = 0, output_chars: int = 0,
                        prompt_tokens: int = 0, completion_tokens: int = 0,
                        duration_ms: int = 0, ok: bool = True,
-                       project_id: str | None = None, node_id: str | None = None) -> None:
+                       project_id: str | None = None, node_id: str | None = None,
+                       audio_seconds: int = 0) -> None:
     """写一条用量记录（失败不影响主流程）"""
     try:
         cost = prompt_tokens / 1_000_000 * PRICE_IN_PER_MTOK + completion_tokens / 1_000_000 * PRICE_OUT_PER_MTOK
@@ -52,6 +53,7 @@ async def record_usage(db: AsyncSession, *, user: User | None, kind: str, model:
             kind=kind, model=model or "", prompt_chars=prompt_chars, output_chars=output_chars,
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cost_est=round(cost, 6), duration_ms=duration_ms, ok=ok,
+            audio_seconds=int(audio_seconds or 0),
         ))
         await db.commit()
     except Exception:

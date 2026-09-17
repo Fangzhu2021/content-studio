@@ -33,6 +33,7 @@ PROMPTS = {
 FORMAT_LABELS = {
     "tv_script": "电视口播稿", "newspaper": "报刊通稿", "wechat": "公众号长文",
     "weibo": "微博文案", "douyin": "抖音口播脚本", "xiaohongshu": "小红书笔记", "toutiao": "头条新闻",
+    "audio_transcript": "录音转写", "pdf_extract": "PDF 提取",
 }
 
 

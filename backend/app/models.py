@@ -127,6 +127,7 @@ class AiUsage(Base):
     completion_tokens = Column(Integer, default=0)
     cost_est = Column(Float, default=0.0)
     duration_ms = Column(Integer, default=0)
+    audio_seconds = Column(Integer, default=0)   # 语音识别：音频时长（秒）
     ok = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

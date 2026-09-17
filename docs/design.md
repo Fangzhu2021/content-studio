@@ -171,6 +171,12 @@
 | prompt_source / prompt_hash / prompt_template_id / prompt_template_version | str | 生效提示词来自 node/global/builtin 及其指纹与版本 |
 | created_at | datetime | 默认保留 12 个月 |
 
+> **录音转文字**：音频文件存放在 `uploads/<project_id>/<node_id>/`，转写状态记在 `node.config.audio`
+> （文件名、大小、时长、进度、切段数、job_id、revision_id）；转写结果作为 `Revision(format_type=audio_transcript)`
+> 进入稿件池，下游节点零改动复用。用量表 `ai_usage.audio_seconds` 记音频秒数（本地识别费用为 0）。
+>
+> 识别由同机独立服务提供：`deploy/asr-service/`（sherpa-onnx + SenseVoice，只监听 127.0.0.1:8030，音频不出内网）。
+
 ### TemplateVersion (模板版本快照)
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -235,6 +241,8 @@
 - `GET /api/admin/run-logs/export.csv` — 导出 CSV（默认不含正文预览，`with_preview=true` 才带）
 - `POST /api/admin/run-logs/prune?months=12` — 按保留期归档清理
 - `GET /api/admin/template-versions` — 模板版本历史（节点库 / 提示词）
+- `POST /api/admin/asr/test` — 测试语音识别服务连通性（录音转文字节点依赖）
+- `POST /api/nodes/{id}/audio` · `GET /api/nodes/{id}/audio` · `GET /api/nodes/{id}/audio/file` · `DELETE /api/nodes/{id}/audio` · `POST /api/nodes/{id}/audio/transcribe` — 录音上传 / 进度 / 回听 / 删除 / 提交转写
 
 ---
 

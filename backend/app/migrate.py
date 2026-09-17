@@ -34,6 +34,8 @@ STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_run_logs_created ON run_logs (created_at)",
     "CREATE INDEX IF NOT EXISTS ix_template_versions_tpl ON template_versions (template_id, version)",
     "ALTER TABLE template_versions ADD COLUMN IF NOT EXISTS note VARCHAR(200) DEFAULT ''",
+    # 语音识别用量：音频秒数
+    "ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS audio_seconds INTEGER DEFAULT 0",
 ]
 
 

@@ -13,6 +13,7 @@ from ..pdf_tools import merge_blocks
 from ..audit import log as audit_log
 from ..concurrency import ai_slot
 from ..templates import effective_prompts, resolve_prompt, resolve_prompt_detail
+from .audio import ASR_MODEL_TAG, _audio_meta, start_transcription
 from ..usage import (PRICE_IN_PER_MTOK, PRICE_OUT_PER_MTOK, ensure_quota,
                      record_usage)
 from ..db import get_db
@@ -186,7 +187,7 @@ async def create_node(pid: str, body: NodeCreate, user: User = Depends(get_curre
         raise HTTPException(400, "未知节点类型")
     if body.type in REWRITEABLE and not body.subtype:
         raise HTTPException(400, "改写/转换节点需要 format_type（tv_script/newspaper/wechat/...）")
-    if body.type == "tool" and body.subtype and body.subtype not in TOOL_KINDS + ("pdf_extract",):
+    if body.type == "tool" and body.subtype and body.subtype not in TOOL_KINDS + ("pdf_extract", "audio_transcribe"):
         raise HTTPException(400, f"不支持的工具类型：{body.subtype}")
     node = CanvasNode(project_id=pid, type=body.type, subtype=body.subtype, label=body.label or body.type,
                       position_x=body.position.x, position_y=body.position.y, config=body.config or {})
@@ -466,6 +467,34 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
 
         if node.type == "tool":
             kind = (node.subtype or "condense").strip()
+
+            if kind == "audio_transcribe":
+                # 录音转文字：交给本机 ASR 服务异步转写（音频不出内网）
+                meta = _audio_meta(node)
+                if not meta.get("filename"):
+                    raise HTTPException(400, "请先上传录音文件（支持 mp3/m4a/wav/aac 等）")
+                if run is not None:
+                    size_mb = round((meta.get("size") or 0) / 1048576, 1)
+                    run.params = {**(run.params or {}), "kind": kind,
+                                  "file": (meta.get("filename") or "")[:200],
+                                  "size_mb": size_mb}
+                    run.input_preview = f'{meta.get("filename")}（{size_mb}MB）'
+                if meta.get("status") == "done" and meta.get("revision_id"):
+                    rev = await db.get(Revision, meta["revision_id"])
+                    if rev is not None:
+                        await set_status(db, node, "done")
+                        await _finish_run(db, run, output=rev, model=ASR_MODEL_TAG,
+                                          params={"kind": kind, "cached": True,
+                                                  "audio_seconds": meta.get("duration_s", 0)})
+                        return {"node_id": node.id, "status": "done", "revision_id": rev.id,
+                                "chars": len(rev.content or ""), "cached": True,
+                                "model": ASR_MODEL_TAG}
+                res = await start_transcription(db, node, user,
+                                                run_id=(run.id if run is not None else None),
+                                                trigger=trigger)
+                return {"node_id": node.id, "status": "running", "job_id": res.get("job_id"),
+                        "progress": res.get("progress", 0.0),
+                        "message": res.get("message", "转写进行中…")}
 
             if kind == "pdf_extract":
                 # PDF 版面提取：本地解析，不调用 AI、不消耗额度

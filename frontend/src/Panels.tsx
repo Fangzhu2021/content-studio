@@ -307,6 +307,196 @@ function PromptEditor({ node, defaultKey }: { node: FlowNode; defaultKey: string
   )
 }
 
+/* ---------------- 录音转文字 ---------------- */
+const AUDIO_ACCEPT = '.mp3,.m4a,.wav,.aac,.amr,.ogg,.oga,.opus,.flac,.wma,.3gp,.mp4,.mov,.mkv'
+
+function fmtBytes(n?: number) {
+  if (!n) return '-'
+  const mb = n / 1048576
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
+}
+
+function fmtDuration(sec?: number) {
+  const s = Math.round(sec || 0)
+  if (!s) return '-'
+  const m = Math.floor(s / 60)
+  if (m >= 60) return `${Math.floor(m / 60)} 小时 ${m % 60} 分`
+  return `${m} 分 ${String(s % 60).padStart(2, '0')} 秒`
+}
+
+function AudioPanel({ node }: { node: FlowNode }) {
+  const { rev, reload } = useRevision(node.id)
+  const [meta, setMeta] = useState<Record<string, any>>({})
+  const [busy, setBusy] = useState(false)
+  const [uploadPct, setUploadPct] = useState(0)
+  const [audioUrl, setAudioUrl] = useState('')
+  const [drag, setDrag] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const loadState = useCallback(async () => {
+    try { const d = await api.audioState(node.id); setMeta(d.audio || {}) } catch { /* 忽略 */ }
+  }, [node.id])
+
+  useEffect(() => { void loadState(); void reload() }, [node.id, loadState, reload])
+
+  // 转写进行中：轮询进度（同时后端也会通过 WebSocket 推进节点状态）
+  const running = meta.status === 'queued' || meta.status === 'running'
+  useEffect(() => {
+    if (!running) return
+    const timer = setInterval(() => { void loadState() }, 2500)
+    return () => clearInterval(timer)
+  }, [running, loadState])
+
+  // 完成或失败时刷新稿件预览
+  useEffect(() => {
+    if (meta.status === 'done' || meta.status === 'failed') { void reload(); void loadState() }
+  }, [meta.status, meta.revision_id, reload, loadState])
+
+  // 播放器：带鉴权取音频再转 blob（避免把 token 挂到 URL 上）
+  const urlRef = useRef('')
+  useEffect(() => {
+    let dropped = false
+    void (async () => {
+      if (!meta.filename) { setAudioUrl(''); return }
+      try {
+        const blob = await api.audioBlob(node.id)
+        if (dropped) return
+        const url = URL.createObjectURL(blob)
+        const old = urlRef.current
+        urlRef.current = url
+        setAudioUrl(url)
+        // 旧地址等播放器卸载后再释放，否则浏览器会报一次 ERR_FILE_NOT_FOUND
+        if (old) setTimeout(() => URL.revokeObjectURL(old), 3000)
+      } catch { setAudioUrl('') }
+    })()
+    return () => { dropped = true }
+  }, [meta.filename, node.id])
+
+  useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current) }, [])
+
+  async function upload(file: File) {
+    setBusy(true); setUploadPct(0)
+    try {
+      await api.uploadAudio(node.id, file, setUploadPct)
+      useStore.getState().toastMsg(`已上传：${file.name}（${fmtBytes(file.size)}），点「开始转写」即可`)
+      await loadState()
+    } catch (e) {
+      const m = errText(e)
+      useStore.getState().toastMsg(m)
+      useStore.getState().syncNode(node.id, { status: 'failed', error: m })
+    }
+    setBusy(false); setUploadPct(0)
+  }
+
+  async function transcribe() {
+    setBusy(true)
+    try {
+      const r = await api.transcribeAudio(node.id)
+      useStore.getState().syncNode(node.id, { status: 'running' })
+      useStore.getState().toastMsg(r.message || '已提交转写任务')
+      await loadState()
+    } catch (e) {
+      const m = errText(e)
+      useStore.getState().toastMsg(m)
+      useStore.getState().syncNode(node.id, { status: 'failed', error: m })
+      await loadState()
+    }
+    setBusy(false)
+  }
+
+  async function removeAudio() {
+    if (!confirm('删除已上传的录音？（已生成的文字稿会保留）')) return
+    try {
+      await api.deleteAudio(node.id)
+      setAudioUrl('')
+      await loadState()
+      useStore.getState().toastMsg('录音已删除')
+    } catch (e) { useStore.getState().toastMsg(errText(e)) }
+  }
+
+  const estMinutes = meta.duration_s ? Math.max(1, Math.round((meta.duration_s / 3600) * 7)) : 0
+
+  return (
+    <div className="panel-body">
+      <p className="tip">
+        上传采访录音（手机录音、录音笔均可），由<b>本机语音识别服务</b>转成文字稿；
+        <b>音频不出内网</b>，也不消耗 AI 调用额度。转写结果会作为一篇稿件供下游「AI 改写」等节点使用。
+      </p>
+
+      {!meta.filename ? (
+        <div
+          className={`audio-drop${drag ? ' on' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => {
+            e.preventDefault(); setDrag(false)
+            const f = e.dataTransfer.files?.[0]
+            if (f) void upload(f)
+          }}
+          onClick={() => inputRef.current?.click()}
+        >
+          <div className="audio-drop-ico">🎙️</div>
+          <div><b>{busy ? `上传中… ${uploadPct}%` : '把录音拖到这里，或点击选择文件'}</b></div>
+          <div className="dim">支持 mp3 / m4a / wav / aac / amr / ogg / flac，单文件不超过 200MB（约 3 小时）</div>
+          <input ref={inputRef} type="file" accept={AUDIO_ACCEPT} style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
+        </div>
+      ) : (
+        <div className="audio-file">
+          <div className="audio-file-head">
+            <span className="audio-file-ico">🎧</span>
+            <span className="audio-file-name" title={meta.filename}>{meta.filename}</span>
+            <span className="dim">{fmtBytes(meta.size)}</span>
+          </div>
+          <div className="dim" style={{ margin: '4px 0 8px' }}>
+            时长 {fmtDuration(meta.duration_s)}
+            {meta.chars ? ` · 已识别 ${meta.chars} 字` : ''}
+            {meta.elapsed_s ? ` · 转写耗时 ${meta.elapsed_s}s` : ''}
+            {meta.rtf ? ` · 实时率 ${meta.rtf}` : ''}
+          </div>
+          {audioUrl ? <audio controls src={audioUrl} style={{ width: '100%' }} preload="metadata" /> : null}
+          <div className="btn-row" style={{ marginTop: 8 }}>
+            <button onClick={() => inputRef.current?.click()} disabled={busy || running}>换一个录音</button>
+            <button className="danger" onClick={() => void removeAudio()} disabled={busy || running}>删除录音</button>
+            <input ref={inputRef} type="file" accept={AUDIO_ACCEPT} style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
+          </div>
+        </div>
+      )}
+
+      {running ? (
+        <div className="audio-progress">
+          <div className="audio-progress-head">
+            <span>{meta.status === 'queued' ? '排队中…' : '正在转写…'}</span>
+            <span className="dim">
+              {Math.round((meta.progress || 0) * 100)}%
+              {meta.segments_total ? `（${meta.segments_done || 0}/${meta.segments_total} 段）` : ''}
+              {meta.chars ? ` · 已出 ${meta.chars} 字` : ''}
+            </span>
+          </div>
+          <div className="audio-bar"><i style={{ width: `${Math.max(2, (meta.progress || 0) * 100)}%` }} /></div>
+          <div className="dim" style={{ marginTop: 6 }}>
+            长录音按段推进，进度实时更新；可以切到别的节点，转写会继续在后台跑。
+          </div>
+        </div>
+      ) : null}
+
+      <button className="primary wide" onClick={() => void transcribe()}
+        disabled={busy || running || !meta.filename || meta.status === 'done'}>
+        {running ? '⏳ 转写中…' : meta.status === 'done' ? '✓ 已转写（可重复执行查看结果）' : '🎙️ 开始转写'}
+      </button>
+      {!running && meta.filename && meta.status !== 'done' && meta.duration_s === 0 && estMinutes === 0 ? (
+        <p className="tip">本机速度约每小时录音需要 6~8 分钟，提交后可离开页面。</p>
+      ) : null}
+      <FailBanner node={node} onRetry={() => void transcribe()} busy={busy} />
+
+      <h4>文字稿 {rev ? <span className="dim">（{rev.content.length} 字）</span> : null}</h4>
+      <OutBox rev={rev} hint={'转写完成后在此显示文字稿。\n长录音建议先粗读一遍，再点下游「AI 改写」节点。'} />
+    </div>
+  )
+}
+
+
 /* ---------------- AI 改写 / 转换 ---------------- */
 function AiPanel({ node }: { node: FlowNode }) {
   const { rev, reload } = useRevision(node.id)
@@ -886,6 +1076,7 @@ export default function ConfigPanel() {
       ) : node.data.kind === 'draft_input' ? <DraftPanel node={node} />
         : node.data.kind === 'rewriter' || node.data.kind === 'transformer' ? <AiPanel node={node} />
         : node.data.kind === 'tool' && node.data.subtype === 'pdf_extract' ? <PdfPanel node={node} />
+        : node.data.kind === 'tool' && node.data.subtype === 'audio_transcribe' ? <AudioPanel node={node} />
         : node.data.kind === 'tool' ? <ToolPanel node={node} />
         : node.data.kind === 'reviewer' ? <ReviewPanel node={node} />
         : node.data.kind === 'ai_reviewer' ? <AiReviewPanel node={node} />

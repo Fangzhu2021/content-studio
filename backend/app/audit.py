@@ -15,6 +15,12 @@ DEFAULT_SETTINGS: dict[str, dict] = {
     "ai_api_key": {"value": ""},                # AI 服务 Token（接口只回传掩码）
     "ai_base_url": {"value": ""},               # AI 服务地址（OpenAI 兼容）
     "ai_default_model": {"value": "standard"},  # 全站默认模型档位：standard / reasoner
+    # ---- 语音识别（录音转文字）：默认指向本机 audio8-asr 服务，音频不出内网 ----
+    "asr_base_url": {"value": ""},              # 留空 = http://127.0.0.1:8030
+    "asr_api_key": {"value": ""},               # 本机服务无需 Token
+    "asr_model": {"value": "sensevoice-small"}, # 仅作展示名
+    "asr_allow_cloud": {"value": False},        # 地址非内网时，必须显式打开才允许调用
+    "asr_price_per_hour": {"value": 0},         # 元/小时（本地 0；接云时用于估算）
 }
 
 

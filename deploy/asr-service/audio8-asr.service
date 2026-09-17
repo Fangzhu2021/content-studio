@@ -1,0 +1,21 @@
+[Unit]
+Description=Audio8 ASR (SenseVoice) Local Speech-to-Text Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/www/wwwroot/Audio8_ASR
+Environment=ASR_MODEL_DIR=/www/wwwroot/Audio8_ASR/model
+Environment=ASR_THREADS=3
+Environment=ASR_CHUNK_SECONDS=28
+Environment=ASR_MAX_UPLOAD_MB=300
+Environment=ASR_LANGUAGE=auto
+Environment=ASR_USE_ITN=1
+Environment=ASR_TMP_DIR=/tmp/audio8-asr
+ExecStart=/www/wwwroot/Audio8_ASR/.venv/bin/uvicorn service:app --app-dir /www/wwwroot/Audio8_ASR --host 127.0.0.1 --port 8030
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
