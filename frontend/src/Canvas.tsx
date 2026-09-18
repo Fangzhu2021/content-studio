@@ -123,6 +123,7 @@ function CanvasInner() {
   return (
     <div className="canvas-wrap">
       <ReactFlow
+        className="dark"
         nodes={viewNodes}
         edges={viewEdges}
         nodeTypes={nodeTypes}

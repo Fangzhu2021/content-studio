@@ -224,14 +224,19 @@
 }
 .canvas-tools button:hover { border-color: var(--brand-500); color: var(--brand-300); }
 
-/* React Flow 控件与缩略图 */
-.react-flow__controls { box-shadow: var(--e-2); border-radius: var(--r-md); overflow: hidden; }
-.react-flow__controls-button {
-  width: 28px; height: 28px; background: var(--surface-2); border: none;
-  border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); fill: var(--text-secondary);
+/* React Flow 控件与缩略图
+   放大/缩小/适应视图三个按钮：深底 + 亮图标，保证在深色画布上清晰可辨
+   （此前框架默认给了 #fefefe 白底 + 浅色图标，在画布上几乎看不清“+ / −”） */
+#root .react-flow__controls { box-shadow: var(--e-2); border-radius: var(--r-md); overflow: hidden; }
+#root .react-flow__controls-button {
+  width: 28px; height: 28px; padding: 0;
+  background: var(--surface-2); border: none; border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary); fill: var(--text-primary);
 }
-.react-flow__controls-button:hover { background: var(--surface-3); }
-.react-flow__controls-button svg { fill: var(--text-secondary); }
+#root .react-flow__controls-button:last-child { border-bottom: none; }
+#root .react-flow__controls-button:hover { background: var(--surface-4); color: var(--brand-300); fill: var(--brand-300); }
+#root .react-flow__controls-button svg { fill: currentColor; stroke: currentColor; }
+#root .react-flow__controls-button:hover svg { fill: currentColor; stroke: currentColor; }
 .react-flow__minimap {
   background: var(--surface-1) !important; border: 1px solid var(--border-default);
   border-radius: var(--r-md); box-shadow: var(--e-2);
@@ -313,8 +318,9 @@
 @keyframes dashflow { to { stroke-dashoffset: -24; } }
 
 /* React Flow 主题变量：把框架默认色板整体换成我们的令牌
-   （框架样式表的选择器优先级高于单类选择器，必须从变量层覆盖） */
-.react-flow {
+   注意：框架样式表在打包产物里位于本项目样式之后，且默认值同样定义在 .react-flow 上，
+   因此这里必须用 #root .react-flow（优先级更高）才能压住它的浅色默认值。 */
+#root .react-flow {
   --xy-background-color-default: var(--bg-canvas);
   --xy-edge-stroke-default: var(--edge-default);
   --xy-edge-stroke-width-default: 1.5;
@@ -350,12 +356,17 @@
 .react-flow__arrowhead polyline, .react-flow__arrowhead path { fill: var(--edge-default) !important; stroke: none !important; }
 .react-flow__edge.edge-active .react-flow__arrowhead polyline { fill: var(--brand-400) !important; }
 
-.react-flow__handle {
-  width: 10px; height: 10px; border-radius: var(--r-full);
-  background: var(--bg-canvas); border: 2px solid var(--cat, var(--border-node));
-  transition: transform var(--dur-instant) var(--ease-standard), box-shadow var(--dur-instant) var(--ease-standard);
+/* 端口（连接点）：半径 5px 圆点 / 填充画布色 / 描边 2px 取最近节点的分类色（规范 6.2）
+   同样必须用 #root 提高优先级：框架的 .react-flow__handle 规则在打包产物中位于本项目之后 */
+#root .react-flow__handle {
+  width: 10px; height: 10px; min-width: 10px; min-height: 10px;
+  border-radius: var(--r-full);
+  background: var(--bg-canvas);
+  border: 2px solid var(--cat, var(--border-node));
+  transition: scale var(--dur-instant) var(--ease-standard), box-shadow var(--dur-instant) var(--ease-standard);
 }
-.react-flow__handle:hover { transform: scale(1.4); box-shadow: 0 0 0 2px rgba(79, 124, 255, .45); }
+/* 用 scale 而非 transform：框架用 transform 做居中定位，改了会把端口挤偏 */
+#root .react-flow__handle:hover { scale: 1.4; box-shadow: 0 0 0 2px rgba(79, 124, 255, .45); }
 
 /* =============================== 右栏面板 =============================== */
 .splitter { width: 6px; cursor: col-resize; background: transparent; flex: 0 0 6px; position: relative; }
