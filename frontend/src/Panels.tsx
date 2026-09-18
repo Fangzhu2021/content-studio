@@ -96,6 +96,7 @@ function chips(rev: Revision | null) {
     <div className="meta-chips">
       <span className={`chip st-${rev.status}`}>{STATUS_TEXT[rev.status] || rev.status}</span>
       <span className="chip">{FORMATS[rev.format_type] || rev.format_type || '原始'}</span>
+      {rev.source === 'human' ? <span className="chip on">人工修订</span> : null}
       {rev.model ? <span className="chip">{modelLabel(rev.model)}</span> : null}
     </div>
   )
@@ -200,6 +201,78 @@ function useResolvedSources(nodeId: string) {
   }, [nodeId])
   useEffect(() => { void load() }, [load, statusKey])
   return { sources, reload: load }
+}
+
+/* 可编辑输出框：用于「先出结果、再人工校订」的节点（如录音转写的文字稿）。
+   保存后成为该节点的人工修订版 → 下游节点即取到校订后的内容。 */
+function EditableOutBox({ rev, disabled, busyText, rows = 14, hint }: {
+  rev: Revision | null
+  disabled?: boolean
+  busyText?: string
+  rows?: number
+  hint?: string
+}) {
+  const [title, setTitle] = useState(rev?.title || '')
+  const [text, setText] = useState(rev?.content || '')
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState('')
+
+  useEffect(() => {
+    setTitle(rev?.title || '')
+    setText(rev?.content || '')
+    setSavedAt('')
+  }, [rev?.id, rev?.content])
+
+  if (!rev) return <div className="empty">{hint || '暂无输出'}</div>
+  const dirty = title !== (rev.title || '') || text !== (rev.content || '')
+  const isHuman = rev.source === 'human'
+
+  async function save() {
+    if (!dirty || disabled) return
+    setSaving(true)
+    try {
+      await api.editRevision(rev!.id, title, text)
+      setSavedAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
+      useStore.getState().toastMsg('已保存：人工校订版已替换该节点的当前输出，下游节点将使用校订后的内容')
+    } catch (e) { useStore.getState().toastMsg(errText(e)) }
+    setSaving(false)
+  }
+
+  return (
+    <div className="outbox editable">
+      <div className="meta-chips">
+        <span className={`chip st-${rev.status}`}>{STATUS_TEXT[rev.status] || rev.status}</span>
+        <span className="chip">{FORMATS[rev.format_type] || rev.format_type || '原始'}</span>
+        {isHuman ? <span className="chip on">人工修订</span> : null}
+        {dirty ? <span className="chip warn-chip">未保存</span> : savedAt ? <span className="chip">已保存 {savedAt}</span> : null}
+        {rev.model ? <span className="chip">{modelLabel(rev.model)}</span> : null}
+      </div>
+      <label>标题</label>
+      <input value={title} disabled={disabled} onChange={(e) => setTitle(e.target.value)} placeholder="（无标题）" />
+      <label>
+        文字稿
+        <span className="dim" style={{ marginLeft: 8 }}>
+          {disabled ? (busyText || '转写中，完成后可编辑') : `${(rev.content || '').length} 字${dirty ? ' → ' : ''}`}
+          {!disabled && dirty ? <b className={text.length > (rev.content || '').length ? 'warn' : 'ok'}>{text.length} 字</b> : null}
+        </span>
+      </label>
+      <textarea className="rev-content out-content" rows={rows} value={text} spellCheck={false}
+        disabled={disabled} onChange={(e) => setText(e.target.value)}
+        placeholder="可边听边改：修改识别结果后点「保存修改」" />
+      <div className="btn-row">
+        <button className={dirty ? 'primary' : ''} disabled={!dirty || saving || disabled} onClick={() => void save()}>
+          <Icon name="check" size={14} />{saving ? '保存中…' : '保存修改'}
+        </button>
+        <button disabled={!dirty || saving} onClick={() => { setTitle(rev.title || ''); setText(rev.content || '') }}>
+          <Icon name="refresh-cw" size={14} />放弃修改
+        </button>
+        {rev.content ? <button onClick={() => copyText(text)}><Icon name="copy" size={14} />复制全文</button> : null}
+      </div>
+      <div className="small-note">
+        修改保存后会生成「人工修订版」并成为该节点的当前输出，下游节点直接用校订后的内容；原始识别结果保留在版本历史中，可回退。
+      </div>
+    </div>
+  )
 }
 
 function EmptyState({ icon, title, desc }: { icon: string; title: string; desc: string }) {
@@ -574,8 +647,9 @@ function AudioPanel({ node }: { node: FlowNode }) {
       ) : null}
       <FailBanner node={node} onRetry={() => void transcribe()} busy={busy} />
 
-      <h4>文字稿 {rev ? <span className="dim">（{rev.content.length} 字）</span> : null}</h4>
-      <OutBox rev={rev} hint={'转写完成后在此显示文字稿。\n长录音建议先粗读一遍，再点下游「AI 改写」节点。'} />
+      <h4>文字稿 <span className="dim">（可边听边改，保存后覆盖当前输出）</span></h4>
+      <EditableOutBox rev={rev} disabled={running} busyText="转写中，完成后可编辑" rows={16}
+        hint="转写完成后在此显示文字稿；可对照上方播放器逐句校对。" />
     </div>
   )
 }

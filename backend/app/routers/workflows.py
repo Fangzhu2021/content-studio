@@ -13,7 +13,7 @@ from ..pdf_tools import merge_blocks
 from ..audit import log as audit_log
 from ..concurrency import ai_slot
 from ..templates import effective_prompts, resolve_prompt, resolve_prompt_detail
-from .audio import ASR_MODEL_TAG, _audio_meta, start_transcription
+from .audio import ASR_MODEL_TAG, _audio_meta, _save_meta, start_transcription
 from ..usage import (PRICE_IN_PER_MTOK, PRICE_OUT_PER_MTOK, ensure_quota,
                      record_usage)
 from ..db import get_db
@@ -550,9 +550,17 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
                                   "file": (meta.get("filename") or "")[:200],
                                   "size_mb": size_mb}
                     run.input_preview = f'{meta.get("filename")}（{size_mb}MB）'
-                if meta.get("status") == "done" and meta.get("revision_id"):
-                    rev = await db.get(Revision, meta["revision_id"])
+                if meta.get("status") == "done":
+                    # 取该节点**最新**的稿件：用户可能已人工修订过转写稿，
+                    # 不能再用 config 里记录的旧 revision_id（那会把人工修改绕过去）
+                    rev = (await db.execute(
+                        select(Revision).where(Revision.node_id == node.id)
+                        .order_by(Revision.created_at.desc()).limit(1)
+                    )).scalar_one_or_none()
                     if rev is not None:
+                        if rev.id != meta.get("revision_id"):
+                            _save_meta(node, revision_id=rev.id, chars=len(rev.content or ""))
+                            await db.commit()
                         await set_status(db, node, "done")
                         await _finish_run(db, run, output=rev, model=ASR_MODEL_TAG,
                                           params={"kind": kind, "cached": True,
