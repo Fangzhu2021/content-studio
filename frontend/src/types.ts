@@ -24,6 +24,7 @@ export interface Revision {
   status: string
   model: string
   review_comment: string
+  source?: string          // ai=AI 生成 / human=人工修订
   created_at?: string | null
 }
 export interface ExecResult { node_id: string; status: string; revision_id?: string; model?: string; message?: string }

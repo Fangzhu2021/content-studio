@@ -33,7 +33,7 @@ def _rev_out(r: Revision) -> dict:
         "id": r.id, "node_id": r.node_id, "parent_revision_id": r.parent_revision_id,
         "title": r.title or "", "content": r.content or "", "format_type": r.format_type or "",
         "status": r.status or "draft", "model": public_model(r.model),
-        "review_comment": r.review_comment or "",
+        "review_comment": r.review_comment or "", "source": r.source or "ai",
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
 
@@ -297,6 +297,45 @@ async def node_history(nid: str, user: User = Depends(get_current_user), db: Asy
         select(Revision).where(Revision.node_id == nid).order_by(Revision.created_at.desc()).limit(20)
     )
     return [_rev_out(r) for r in rows.scalars()]
+
+
+@router.post("/revisions/{rid}/edit")
+async def edit_revision(rid: str, body: ContentIn, user: User = Depends(get_current_user),
+                        db: AsyncSession = Depends(get_db)):
+    """人工修订稿件（审定节点里直接改稿后保存）。
+
+    设计要点：
+    - **新建一条修订版**（parent 指向被改的那篇），不覆盖 AI 原生成物 → 可回退、可对比；
+    - node_id 沿用原稿所属节点 → 下游「每节点取最新」自动拿到人工修订版；
+    - 状态统一回到 rewritten（待审定）：内容变了，之前的审定/成稿标记不再成立；
+    - source=human，前端显示「人工修订」徽标，且不计 AI 用量。
+    """
+    rev = await db.get(Revision, rid)
+    if not rev:
+        raise HTTPException(404, "稿件不存在")
+    await _owned_project(db, rev.project_id, user)
+    content = (body.content or "").strip()
+    if not content:
+        raise HTTPException(400, "稿件内容不能为空")
+    title = (body.title or rev.title or "").strip()
+
+    same = content == (rev.content or "").strip() and title == (rev.title or "")
+    if same:
+        return _rev_out(rev)                     # 没有实际修改，不产生新版本
+
+    new_rev = Revision(project_id=rev.project_id, node_id=rev.node_id,
+                       parent_revision_id=rev.id, title=title, content=content,
+                       format_type=rev.format_type, status="rewritten",
+                       model=rev.model, source="human")
+    db.add(new_rev)
+    await db.commit()
+    await db.refresh(new_rev)
+    await audit_log(db, action="revision_edit", user=user, target_type="revision", target_id=new_rev.id,
+                    detail={"node_id": rev.node_id, "from_revision": rev.id,
+                            "chars_before": len(rev.content or ""), "chars_after": len(content),
+                            "old_status": rev.status or ""})
+    await manager.broadcast(rev.project_id, {"type": "revision", "project_id": rev.project_id})
+    return _rev_out(new_rev)
 
 
 @router.get("/revisions/{rid}")

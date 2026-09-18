@@ -79,6 +79,7 @@ class Revision(Base):
     status = Column(String(20), default="draft")             # draft/rewritten/reviewed/approved/finalized
     model = Column(String(50), default="")                   # deepseek-chat / mock
     review_comment = Column(Text, default="")
+    source = Column(String(10), default="ai")   # ai=AI 生成 / human=人工修订（审定节点里改的稿）
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

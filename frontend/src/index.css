@@ -802,3 +802,12 @@ code { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(-
 .rec-item { display: inline-flex; align-items: center; gap: var(--s-1); }
 .rec-time { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--text-tertiary); }
 .rec-num { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--text-secondary); }
+
+/* ---------- 审定节点：可编辑草稿区 ---------- */
+.rev-card .draft-edit { min-height: 220px; height: 34vh; max-height: 60vh; resize: vertical; line-height: 1.75; font-size: var(--fs-caption); }
+.rev-card input { margin-bottom: var(--s-1); }
+.chip.warn-chip { border-color: color-mix(in srgb, var(--warning) 55%, transparent); color: var(--warning); }
+button.ok-btn { border-color: color-mix(in srgb, var(--success) 55%, transparent); color: var(--success); }
+button.ok-btn:hover { background: color-mix(in srgb, var(--success) 14%, transparent); border-color: var(--success); }
+button.no-btn { border-color: var(--border-default); color: var(--text-secondary); }
+button.no-btn:hover { border-color: var(--warning); color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }

@@ -602,13 +602,104 @@ function AiPanel({ node }: { node: FlowNode }) {
   )
 }
 
-/* ---------------- 人工审定 ---------------- */
+/* ---------------- 人工审定（可直接修改稿件，改完保存→通过，下游即用改后版本） ---------------- */
+function ReviewCard({ rev, busy, comment, onComment, onSaved, onAct }: {
+  rev: Revision
+  busy: string
+  comment: string
+  onComment: (v: string) => void
+  onSaved: () => Promise<void>
+  onAct: (revId: string, status: string) => Promise<void>
+}) {
+  const [title, setTitle] = useState(rev.title || '')
+  const [text, setText] = useState(rev.content || '')
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState('')
+
+  useEffect(() => { setTitle(rev.title || ''); setText(rev.content || ''); setSavedAt('') }, [rev.id, rev.content])
+
+  const dirty = title !== (rev.title || '') || text !== (rev.content || '')
+  const charsBefore = (rev.content || '').length
+  const charsNow = text.length
+  const isHuman = rev.source === 'human'
+
+  async function save() {
+    if (!dirty) return rev
+    setSaving(true)
+    let next: Revision | null = null
+    try {
+      next = await api.editRevision(rev.id, title, text)
+      useStore.getState().toastMsg('已保存修改（人工修订版），点「通过」后下游节点将使用这一版')
+      setSavedAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
+      await onSaved()
+    } catch (e) { useStore.getState().toastMsg(errText(e)) }
+    setSaving(false)
+    return next || rev
+  }
+
+  async function approve() {
+    // 有未保存的修改 → 先自动保存，再走审定，避免"改了但没生效"
+    const target = dirty ? await save() : rev
+    if (!target) return
+    await onAct(target.id, 'approved')
+  }
+
+  return (
+    <div className="rev-card">
+      <div className="rev-card-head">
+        <b>{FORMATS[rev.format_type] || rev.format_type}</b>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+          {isHuman ? <span className="chip on"><Icon name="square-pen" size={11} />人工修订</span> : null}
+          {dirty ? <span className="chip warn-chip">未保存</span> : savedAt ? <span className="chip">已保存 {savedAt}</span> : null}
+          <span className={`pill st-${rev.status}`}>{STATUS_TEXT[rev.status] || rev.status}</span>
+        </span>
+      </div>
+
+      <label>稿件标题</label>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="（无标题）" />
+
+      <label>
+        修改草稿
+        <span className="dim" style={{ marginLeft: 8 }}>
+          {charsBefore} 字
+          {dirty ? <> → <b className={charsNow > charsBefore ? 'warn' : 'ok'}>{charsNow} 字</b></> : null}
+        </span>
+      </label>
+      <textarea className="rev-content draft-edit" rows={12} value={text} spellCheck={false}
+        onChange={(e) => setText(e.target.value)} placeholder="可直接在这里修改 AI 生成物…" />
+
+      {rev.review_comment ? <div className="comment">上次意见：{rev.review_comment}</div> : null}
+      {isHuman ? (
+        <div className="small-note">这是人工修订版（AI 原稿仍保留在版本历史中，可回退）。</div>
+      ) : null}
+
+      <div className="btn-row">
+        <button className={dirty ? 'primary' : ''} disabled={saving || !dirty} onClick={() => void save()}>
+          <Icon name="check" size={13} />{saving ? '保存中…' : '保存修改'}
+        </button>
+        <button className="ok-btn" disabled={!!busy} onClick={() => void approve()}>
+          <Icon name="check" size={13} />通过{dirty ? '（先保存）' : ''}
+        </button>
+        <button className="no-btn" disabled={!!busy} onClick={() => void onAct(rev.id, 'draft')}>
+          <Icon name="x" size={13} />打回
+        </button>
+        {dirty ? <span className="dim" style={{ fontSize: 12 }}>未保存的修改会在点「通过」时自动保存</span> : null}
+      </div>
+    </div>
+  )
+}
+
 function ReviewPanel({ node }: { node: FlowNode }) {
   const [comment, setComment] = useState('')
   const [items, setItems] = useState<Revision[]>([])
   const [busy, setBusy] = useState('')
   const edges = useStore((s) => s.edges)
+  const allNodes = useStore((s) => s.nodes)
   const upstreamIds = edges.filter((e) => e.target === node.id).map((e) => e.source)
+  // 上游节点状态变化（例如刚跑完改写）时要自动重新取稿，否则面板会停留在旧稿件上
+  const upstreamStatus = upstreamIds
+    .map((id) => `${id}:${allNodes.find((n) => n.id === id)?.data.status || ''}`)
+    .join(',')
 
   const load = useCallback(async () => {
     const list: Revision[] = []
@@ -619,46 +710,55 @@ function ReviewPanel({ node }: { node: FlowNode }) {
     setItems(list)
   }, [upstreamIds.join(',')])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, upstreamStatus])
 
   async function act(revId: string, status: string) {
     setBusy(revId + status)
     try {
       await api.reviewRevision(revId, status, comment)
-      useStore.getState().toastMsg(status === 'approved' ? '已通过' : '已打回')
+      useStore.getState().toastMsg(status === 'approved' ? '已通过：下游节点将使用这一版稿件' : '已打回，可修改后重新执行改写')
       await load()
       await useStore.getState().refreshCanvas()
     } catch (e) { useStore.getState().toastMsg(errText(e)) }
     setBusy('')
   }
+
   const pending = items.filter((r) => ['rewritten', 'reviewed'].includes(r.status))
   return (
     <div className="panel-body">
-      <p className="tip">对上游改写稿逐篇审定：通过或打回（可填意见）。</p>
-      <label>审定意见（可选）</label>
-      <textarea className="small" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="批注/修改意见…" />
+      <p className="tip">
+        这是人工审核环节：可以直接在下面<b>修改稿件内容</b>，点「保存修改」保存为<b>人工修订版</b>，
+        再点「通过」——<b>下游节点就会使用你修改后的版本</b>。AI 原稿会保留在版本历史里，可随时回退。
+      </p>
+
       {items.length === 0 ? (
         <EmptyState icon="file-text" title="等待上游稿件" desc="请先执行上游的改写 / 转换节点，这里会自动出现可审定的稿件。" />
       ) : null}
-      {items.map((r) => (
-        <div className="rev-card" key={r.id}>
-          <div className="rev-card-head">
-            <b>{FORMATS[r.format_type] || r.format_type}</b>
-            <span className={`pill st-${r.status}`}>{STATUS_TEXT[r.status] || r.status}</span>
-          </div>
-          <div className="rev-card-title">{r.title || '（无标题）'}</div>
-          {r.review_comment ? <div className="comment">意见：{r.review_comment}</div> : null}
-          {pending.some((p) => p.id === r.id) ? (
-            <div className="btn-row">
-              <button className="ok-btn" disabled={!!busy} onClick={() => act(r.id, 'approved')}><Icon name="check" size={13} />通过</button>
-              <button className="no-btn" disabled={!!busy} onClick={() => act(r.id, 'draft')}><Icon name="x" size={13} />打回</button>
-            </div>
-          ) : null}
-        </div>
+
+      {pending.length === 0 && items.length > 0 ? (
+        <div className="small-note">当前没有待审稿件（下列稿件已审定）。</div>
+      ) : null}
+
+      {pending.map((r) => (
+        <ReviewCard key={r.id} rev={r} busy={busy} comment={comment} onComment={setComment}
+          onSaved={async () => { await load(); await useStore.getState().refreshCanvas() }}
+          onAct={act} />
       ))}
-      <h4>来源对比</h4>
-      <div className="small-note">展开上游改写稿内容查看：</div>
-      {items.filter((r) => !pending.some((p) => p.id === r.id)).map((r) => <OutBox key={r.id} rev={r} />)}
+
+      {pending.length > 0 ? (
+        <>
+          <label>打回意见（可选，仅打回时记录到稿件上）</label>
+          <textarea className="small" rows={2} value={comment} onChange={(e) => setComment(e.target.value)}
+            placeholder="例如：导语时间有误，请核实后重写…" />
+        </>
+      ) : null}
+
+      {items.filter((r) => !pending.some((p) => p.id === r.id)).length ? (
+        <>
+          <h4>已审定稿件（只读）</h4>
+          {items.filter((r) => !pending.some((p) => p.id === r.id)).map((r) => <OutBox key={r.id} rev={r} />)}
+        </>
+      ) : null}
     </div>
   )
 }

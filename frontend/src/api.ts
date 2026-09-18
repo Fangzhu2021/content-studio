@@ -205,9 +205,18 @@ export const api = {
     const { data } = await http.get(`/revisions/${rid}`)
     return data as import('./types').Revision
   },
+  async nodeHistory(nodeId: string) {
+    const { data } = await http.get(`/nodes/${nodeId}/history`)
+    return data as import('./types').Revision[]
+  },
   async nodeRevision(nodeId: string) {
     const { data } = await http.get(`/nodes/${nodeId}/revision`)
     return data as import('./types').Revision | null
+  },
+  // 人工修订：在审定节点里改稿 → 保存为「人工修订版」（不覆盖 AI 原稿）
+  async editRevision(rid: string, title: string, content: string) {
+    const { data } = await http.post(`/revisions/${rid}/edit`, { title, content })
+    return data as import('./types').Revision
   },
   async reviewRevision(rid: string, status: string, comment: string) {
     const { data } = await http.post(`/revisions/${rid}/status`, { status, comment })

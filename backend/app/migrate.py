@@ -38,6 +38,8 @@ STATEMENTS = [
     "ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS audio_seconds INTEGER DEFAULT 0",
     # 图标体系从 emoji 换成 Lucide 图标名（如 message-square-text），原 16 位不够
     "ALTER TABLE node_templates ALTER COLUMN icon TYPE VARCHAR(40)",
+    # 稿件来源：区分 AI 生成与人工修订（审定节点里直接改稿后保存）
+    "ALTER TABLE revisions ADD COLUMN IF NOT EXISTS source VARCHAR(10) DEFAULT 'ai'",
 ]
 
 
