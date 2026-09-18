@@ -205,6 +205,10 @@ export const api = {
     const { data } = await http.get(`/revisions/${rid}`)
     return data as import('./types').Revision
   },
+  async nodeSources(nodeId: string) {
+    const { data } = await http.get(`/nodes/${nodeId}/sources`)
+    return data as import('./types').Revision[]
+  },
   async nodeHistory(nodeId: string) {
     const { data } = await http.get(`/nodes/${nodeId}/history`)
     return data as import('./types').Revision[]

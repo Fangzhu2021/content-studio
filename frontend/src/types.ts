@@ -25,6 +25,8 @@ export interface Revision {
   model: string
   review_comment: string
   source?: string          // ai=AI 生成 / human=人工修订
+  from_label?: string      // 该稿来自哪个上游节点（/sources 接口返回）
+  from_type?: string
   created_at?: string | null
 }
 export interface ExecResult { node_id: string; status: string; revision_id?: string; model?: string; message?: string }

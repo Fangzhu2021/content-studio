@@ -281,6 +281,27 @@ async def save_content(nid: str, body: ContentIn, user: User = Depends(get_curre
     return _rev_out(rev)
 
 
+@router.get("/nodes/{nid}/sources")
+async def node_sources(nid: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """当前节点可用的上游稿件（与执行时的取稿逻辑**完全一致**）。
+
+    规则：先取直接上游节点的稿件；若直接上游不产稿件（例如中间夹了「人工审定」/
+    「AI 审稿」这类只审批不产稿的节点），就沿连线逐级回溯到最近的产稿节点。
+    前端各面板必须用这个接口，否则会与执行时的实际取稿不一致
+    （曾出现：手工在中间插入审定节点后，成稿导出面板认为"没有来源稿"）。
+    """
+    node = await _owned_node(db, nid, user)
+    out = []
+    for r in await upstream_revisions(db, node):
+        item = _rev_out(r)
+        src_node = await db.get(CanvasNode, r.node_id)
+        item["from_node_id"] = r.node_id
+        item["from_label"] = (src_node.label if src_node else "") or (src_node.type if src_node else "")
+        item["from_type"] = src_node.type if src_node else ""
+        out.append(item)
+    return out
+
+
 @router.get("/nodes/{nid}/revision")
 async def node_revision(nid: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     await _owned_node(db, nid, user)
@@ -698,7 +719,7 @@ async def _run_node(db: AsyncSession, node: CanvasNode, body: ExecuteIn, user: U
             candidates = [r for r in await upstream_revisions(db, node) if not _is_style(r)]
             src = _pick_revision(candidates, body.revision_id)
             if not src or not (src.content or "").strip():
-                raise HTTPException(400, "没有可导出的成稿，请先完成上游改写/转换")
+                raise HTTPException(400, "上游还没有可用的稿件：请先执行改写/转换节点，""或把人工审定通过的稿件连到本节点（本节点可直接使用其全文）")
 
             cfg = node.config or {}
             export_key = f"export_{node.subtype}" if node.subtype else ""

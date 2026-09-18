@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { errText, useStore, type FlowNode } from './store'
 import { FORMATS, STATUS_TEXT, TYPE_META } from './types'
@@ -180,6 +180,26 @@ function PanelMeta({ node }: { node: FlowNode }) {
       ) : null}
     </div>
   )
+}
+
+/* 取稿：与后端执行时的口径完全一致（先直接上游 → 取不到就逐级回溯），
+   并在节点状态变化时自动重新取稿（跑完上游不必手动刷新面板） */
+function useResolvedSources(nodeId: string) {
+  const nodes = useStore((s) => s.nodes)
+  const statusKey = nodes.map((n) => `${n.id}:${n.data.status}`).join(',')
+  const [sources, setSources] = useState<Revision[]>([])
+  const load = useCallback(async () => {
+    try {
+      const list = await api.nodeSources(nodeId)
+      setSources(list)
+      return list
+    } catch {
+      setSources([])
+      return [] as Revision[]
+    }
+  }, [nodeId])
+  useEffect(() => { void load() }, [load, statusKey])
+  return { sources, reload: load }
 }
 
 function EmptyState({ icon, title, desc }: { icon: string; title: string; desc: string }) {
@@ -693,24 +713,12 @@ function ReviewPanel({ node }: { node: FlowNode }) {
   const [comment, setComment] = useState('')
   const [items, setItems] = useState<Revision[]>([])
   const [busy, setBusy] = useState('')
-  const edges = useStore((s) => s.edges)
-  const allNodes = useStore((s) => s.nodes)
-  const upstreamIds = edges.filter((e) => e.target === node.id).map((e) => e.source)
-  // 上游节点状态变化（例如刚跑完改写）时要自动重新取稿，否则面板会停留在旧稿件上
-  const upstreamStatus = upstreamIds
-    .map((id) => `${id}:${allNodes.find((n) => n.id === id)?.data.status || ''}`)
-    .join(',')
-
+  const { sources, reload } = useResolvedSources(node.id)
   const load = useCallback(async () => {
-    const list: Revision[] = []
-    for (const uid of upstreamIds) {
-      const r = await api.nodeRevision(uid)
-      if (r) list.push(r)
-    }
-    setItems(list)
-  }, [upstreamIds.join(',')])
-
-  useEffect(() => { void load() }, [load, upstreamStatus])
+    const list = await reload()
+    setItems(list.filter((r) => r.format_type !== 'style_prompt'))
+  }, [reload])
+  useEffect(() => { setItems(sources.filter((r) => r.format_type !== 'style_prompt')) }, [sources])
 
   async function act(revId: string, status: string) {
     setBusy(revId + status)
@@ -765,23 +773,12 @@ function ReviewPanel({ node }: { node: FlowNode }) {
 
 /* ---------------- 成稿导出 ---------------- */
 function ExportPanel({ node }: { node: FlowNode }) {
-  const edges = useStore((s) => s.edges)
-  const upstreamIds = edges.filter((e) => e.target === node.id).map((e) => e.source)
-  const [sources, setSources] = useState<Revision[]>([])
+  const { sources: allSources, reload: loadSources } = useResolvedSources(node.id)
+  const sources = useMemo(() => allSources.filter((r) => r.format_type !== 'style_prompt'), [allSources])
   const [pick, setPick] = useState('')
   const [preview, setPreview] = useState<Revision | null>(null)
   const [finalRev, setFinalRev] = useState<Revision | null>(null)
   const [busy, setBusy] = useState(false)
-
-  const loadSources = useCallback(async () => {
-    const list: Revision[] = []
-    for (const uid of upstreamIds) {
-      const r = await api.nodeRevision(uid)
-      if (r) list.push(r)
-    }
-    setSources(list)
-    return list
-  }, [upstreamIds.join(',')])
 
   // 仅在切换节点时重置状态（此前 bug：生成后刷新来源把成稿预览清空了）
   useEffect(() => {
@@ -841,14 +838,15 @@ function ExportPanel({ node }: { node: FlowNode }) {
   return (
     <div className="panel-body">
       <p className="tip">
-        选择一篇上游平台稿 → 点「生成最终成稿」：系统按<b>排版提示词</b>把 Markdown 稿排成成稿。
-        公众号会输出<b>内联样式 HTML</b>，可一键复制富文本后直接粘贴进秀米 / 微信编辑器（无需再手动排版）。
+        选择一篇上游稿件 → 点「生成最终成稿」：系统按<b>排版提示词</b>把它排成可直接发布的成稿。
+        来源稿可以是<b>新媒体转换稿</b>（公众号 / 微博 / 抖音…），也可以是<b>人工审定通过的稿件</b>
+        ——中间夹了审定节点也能直接取到稿子全文。公众号会输出<b>内联样式 HTML</b>，一键复制富文本即可粘贴进秀米 / 微信编辑器。
       </p>
 
       <h4>1. 选择来源稿（点击即预览）</h4>
       {sources.length === 0 ? (
-        <EmptyState icon="share-2" title="上游还没有成稿"
-          desc="请先执行「新媒体转换」节点（公众号 / 微博 / 抖音），成稿会自动出现在这里。" />
+        <EmptyState icon="file-text" title="上游还没有可用的稿件"
+          desc="把上游的改写 / 转换节点、或人工审定节点连到本节点即可；人工审定通过的稿件可以直接拿来排版成终稿。" />
       ) : null}
       {sources.map((s) => (
         <label className={`radio-row${pick === s.id ? ' on' : ''}`} key={s.id}>
@@ -856,6 +854,8 @@ function ExportPanel({ node }: { node: FlowNode }) {
           <span>
             <b>{FORMATS[s.format_type] || s.format_type}</b>
             <span className={`pill st-${s.status}`}>{STATUS_TEXT[s.status] || s.status}</span>
+            {s.from_label ? <span className="chip">来自 {s.from_label}</span> : null}
+            {s.status !== 'approved' ? <span className="chip warn-chip">未审定</span> : null}
             <span className="dim"> {s.title || '（无标题）'} · {s.content?.length || 0} 字</span>
           </span>
         </label>
@@ -926,8 +926,7 @@ function ExportPanel({ node }: { node: FlowNode }) {
 
 /* ---------------- AI 审稿 ---------------- */
 function AiReviewPanel({ node }: { node: FlowNode }) {
-  const edges = useStore((s) => s.edges)
-  const upstreamIds = edges.filter((e) => e.target === node.id).map((e) => e.source)
+  const { sources, reload } = useResolvedSources(node.id)
   const [items, setItems] = useState<Revision[]>([])
   const [busy, setBusy] = useState(false)
   const [summary, setSummary] = useState('')
@@ -948,15 +947,10 @@ function AiReviewPanel({ node }: { node: FlowNode }) {
   }
 
   const load = useCallback(async () => {
-    const list: Revision[] = []
-    for (const uid of upstreamIds) {
-      const r = await api.nodeRevision(uid)
-      if (r) list.push(r)
-    }
-    setItems(list)
-  }, [upstreamIds.join(',')])
-
-  useEffect(() => { void load() }, [load])
+    const list = await reload()
+    setItems(list.filter((r) => r.format_type !== 'style_prompt'))
+  }, [reload])
+  useEffect(() => { setItems(sources.filter((r) => r.format_type !== 'style_prompt')) }, [sources])
 
   async function run() {
     setBusy(true); setSummary('')
